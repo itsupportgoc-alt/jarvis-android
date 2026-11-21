@@ -1,0 +1,14 @@
+root = true
+
+[*.{kt,kts}]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+max_line_length = 120
+ktlint_code_style = ktlint_official
+# Compose composables are PascalCase by convention.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+# Compose parameter order is semantically meaningful; do not reorder.
+ktlint_compose_compositionlocal_naming = disabled

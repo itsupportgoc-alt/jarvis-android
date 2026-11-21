@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="accessibility_label">JARVIS screen control</string>
+    <string name="notification_channel_listening">Listening</string>
+    <string name="notification_listening_title">JARVIS is standing by</string>
+    <string name="notification_listening_text">Microphone held by the assistant. Tap to open.</string>
+    <string name="notification_stop">Stop</string>
+    <string name="rationale_mic_title">Microphone</string>
+    <string name="rationale_mic_body">JARVIS listens only while the orb is in Listening, or while the foreground service is holding the microphone for the wake word. Audio is processed on this device; only the transcript is sent to Qwen.</string>
+    <string name="rationale_contacts_body">Used to resolve a name you say into a phone number. Contact data is never uploaded.</string>
+    <string name="rationale_sms_body">Needed to send a message on your behalf. Every outgoing message asks for confirmation first.</string>
+</resources>
