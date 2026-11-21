@@ -3,7 +3,7 @@
 An offline-first voice assistant for Android: Rust engine, Qwen reasoning,
 device tools, and an arc-reactor UI that reacts to real audio.
 
-![JARVIS interface — design mockup](docs/preview.png)
+![JARVIS interface — design mockup](docs/preview.jpg)
 
 ## Download
 
