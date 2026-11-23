@@ -353,6 +353,8 @@ data class JarvisSettings(
     val voiceInput: VoiceInputMode = VoiceInputMode.SYSTEM,
     val trustedTools: Set<String> = emptySet(),
     val wakeSensitivity: Float = 0.6f,
+    /** Keep the microphone open for the "Jarvis" wake phrase. */
+    val wakeWordEnabled: Boolean = false,
     val webhookUrl: String = "",
     val hasApiKey: Boolean = false,
 ) {
@@ -396,6 +398,7 @@ class SettingsStore(
                 }.getOrDefault(VoiceInputMode.SYSTEM),
             trustedTools = prefs.getStringSet("trusted_tools", emptySet()) ?: emptySet(),
             wakeSensitivity = prefs.getFloat("wake_sensitivity", 0.6f),
+            wakeWordEnabled = prefs.getBoolean("wake_word_enabled", false),
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),
         )
@@ -415,6 +418,7 @@ class SettingsStore(
             .putString("voice_input", next.voiceInput.name)
             .putStringSet("trusted_tools", next.trustedTools)
             .putFloat("wake_sensitivity", next.wakeSensitivity)
+            .putBoolean("wake_word_enabled", next.wakeWordEnabled)
             .putString("webhook_url", next.webhookUrl)
             .putBoolean("has_api_key", next.hasApiKey)
             .apply()
@@ -441,6 +445,8 @@ class SettingsStore(
     fun setVoiceInput(mode: VoiceInputMode) = update { it.copy(voiceInput = mode) }
 
     fun setWakeSensitivity(value: Float) = update { it.copy(wakeSensitivity = value) }
+
+    fun setWakeWordEnabled(enabled: Boolean) = update { it.copy(wakeWordEnabled = enabled) }
 
     fun setWebhook(url: String) = update { it.copy(webhookUrl = url.trim()) }
 

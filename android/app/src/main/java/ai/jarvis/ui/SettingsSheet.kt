@@ -401,6 +401,27 @@ fun SettingsSheet(
                     style = MonoSmall,
                     modifier = Modifier.padding(top = 6.dp),
                 )
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Wake word \"Jarvis\"", style = MonoSmall, color = JarvisCyan)
+                        Text(
+                            "Keeps the microphone open in a foreground service, so saying \"Jarvis ...\" " +
+                                "works with the app closed. Uses battery; on MIUI allow JARVIS to autostart " +
+                                "so it comes back after a reboot.",
+                            style = MonoSmall,
+                        )
+                    }
+                    Switch(
+                        checked = settings.wakeWordEnabled,
+                        onCheckedChange = { controller.setWakeWordEnabled(it) },
+                    )
+                }
             }
 
             item { Divider() }

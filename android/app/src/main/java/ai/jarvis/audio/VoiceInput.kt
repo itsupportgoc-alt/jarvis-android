@@ -44,6 +44,9 @@ class VoiceInput(
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
 
+    /** True while a platform session is open. */
+    val isActive: Boolean get() = listening
+
     /** Set by [cancel]; suppresses the platform's trailing ERROR_CLIENT / results. */
     private var cancelled = false
 
@@ -126,9 +129,13 @@ class VoiceInput(
                     cancelled = false
                     return
                 }
+                // These are the ordinary ways a session ends; a caller that
+                // still wants to listen simply opens another session.
                 val recoverable =
                     error == SpeechRecognizer.ERROR_NO_MATCH ||
-                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                        error == SpeechRecognizer.ERROR_CLIENT ||
+                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
                 listener.onError(messageFor(error), recoverable)
             }
 

@@ -4,6 +4,7 @@ import ai.jarvis.R
 import ai.jarvis.core.JarvisController
 import ai.jarvis.core.Phase
 import ai.jarvis.data.AnimationMode
+import ai.jarvis.data.providerPresetFor
 import ai.jarvis.permissions.Permissions
 import ai.jarvis.ui.theme.JarvisAmber
 import ai.jarvis.ui.theme.JarvisCyan
@@ -74,6 +75,9 @@ fun JarvisScreen(controller: JarvisController) {
     val ui by controller.ui.collectAsStateWithLifecycle()
     val settings by controller.settings.collectAsStateWithLifecycle()
     val animationsEnabled by rememberAnimationsEnabled()
+    // The prompt has to name the provider that is actually missing a key, which
+    // is not always Freebuff once a preset has been switched.
+    val activeProviderLabel = providerPresetFor(settings.baseUrl)?.label ?: "this endpoint"
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -184,7 +188,7 @@ fun JarvisScreen(controller: JarvisController) {
                         )
                         if (ui.needsSetup) {
                             Text(
-                                text = "Awaiting credentials. Freebuff API is preset — add its key in Settings.",
+                                text = "Awaiting credentials. Add a key for $activeProviderLabel in Settings.",
                                 style = MonoSmall,
                                 color = JarvisMuted,
                                 modifier = Modifier.padding(top = 8.dp),

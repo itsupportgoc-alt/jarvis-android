@@ -132,6 +132,12 @@ class JarvisController(
     private var engineStarted = false
     private var capture: AudioCapture? = null
     private var serviceRunning = false
+
+    /** True while the user wants the microphone open; drives session restarts. */
+    @Volatile
+    private var listenRequested = false
+    private var listenRestarts = 0
+    private var restartJob: Job? = null
     private var undoAction: UndoAction? = null
     private var undoJob: Job? = null
 
@@ -172,6 +178,7 @@ class JarvisController(
                 }
 
                 override fun onFinal(text: String) {
+                    listenRequested = false
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
                     // Recognition runs locally, so the transcript above is real
@@ -199,7 +206,12 @@ class JarvisController(
                     message: String,
                     recoverable: Boolean,
                 ) {
-                    if (recoverable) {
+                    if (recoverable && listenRequested) {
+                        // A short silence ends the platform session. The user
+                        // asked to listen, so open another session rather than
+                        // dropping to standby or showing a fault banner.
+                        continueListening()
+                    } else if (recoverable) {
                         _ui.update { it.copy(phase = Phase.IDLE, micRms = 0f) }
                     } else {
                         reportError(message)
@@ -207,7 +219,9 @@ class JarvisController(
                 }
 
                 override fun onEnded() {
-                    if (_ui.value.phase == Phase.LISTENING) {
+                    if (listenRequested) {
+                        continueListening()
+                    } else if (_ui.value.phase == Phase.LISTENING) {
                         _ui.update { it.copy(phase = Phase.IDLE, micRms = 0f) }
                     }
                 }
@@ -509,6 +523,8 @@ class JarvisController(
             _ui.update { it.copy(micPermissionNeeded = true) }
             return false
         }
+        listenRequested = true
+        listenRestarts = 0
         // The Rust VAD/Whisper path feeds PCM into the engine, so that mode
         // genuinely cannot run without one.
         if (settingsStore.current.voiceInput == VoiceInputMode.ON_DEVICE && !ensureEngine()) {
@@ -548,7 +564,42 @@ class JarvisController(
         return true
     }
 
+    /**
+     * Reopens the recogniser after a session ended on its own.
+     *
+     * The platform finishes a recognition session at the first silence, which
+     * used to drop the UI back to STANDBY almost immediately. Restarting keeps
+     * the microphone open until the user speaks or taps STOP.
+     */
+    private fun continueListening() {
+        if (!listenRequested) return
+        if (listenRestarts >= MAX_LISTEN_RESTARTS) {
+            listenRequested = false
+            reportError(
+                "I stopped listening after a while without hearing you. Tap MIC to try again.",
+                phase = Phase.IDLE,
+            )
+            return
+        }
+        if (restartJob?.isActive == true) return
+        listenRestarts += 1
+        _ui.update { it.copy(phase = Phase.LISTENING, micRms = 0f, error = null) }
+        // Back off progressively: the platform needs a moment to release the
+        // microphone, and restarting too eagerly only produces BUSY errors.
+        val waitMs =
+            (LISTEN_RESTART_BASE_MS + listenRestarts * LISTEN_RESTART_STEP_MS)
+                .coerceAtMost(LISTEN_RESTART_MAX_MS)
+        restartJob =
+            scope.launch {
+                delay(waitMs)
+                if (listenRequested && _ui.value.phase == Phase.LISTENING && !voiceInput.isActive) {
+                    voiceInput.start()
+                }
+            }
+    }
+
     fun stopListening() {
+        listenRequested = false
         voiceInput.stop()
         capture?.stop()
         capture = null
@@ -558,6 +609,7 @@ class JarvisController(
     }
 
     fun cancel() {
+        listenRequested = false
         val current = handle
         if (current != 0L) JarvisNative.nativeCancel(current)
         tts.stop()
@@ -888,6 +940,24 @@ class JarvisController(
 
     fun setVoiceInput(mode: VoiceInputMode) = settingsStore.setVoiceInput(mode)
 
+    /**
+     * Wake-word mode keeps the microphone open in the foreground service and
+     * reacts to "Jarvis" whether or not the activity is on screen.
+     */
+    fun setWakeWordEnabled(enabled: Boolean) {
+        if (enabled && !Permissions.granted(app, Permissions.MIC)) {
+            _ui.update { it.copy(micPermissionNeeded = true) }
+            return
+        }
+        settingsStore.setWakeWordEnabled(enabled)
+        if (enabled) {
+            runCatching { JarvisService.start(app) }
+                .onFailure { reportError("The wake word service could not start: ${it.message}") }
+        } else {
+            runCatching { JarvisService.stop(app) }
+        }
+    }
+
     fun setWakeSensitivity(value: Float) = settingsStore.setWakeSensitivity(value)
 
     fun setWebhook(url: String) = settingsStore.setWebhook(url)
@@ -926,6 +996,10 @@ class JarvisController(
     private companion object {
         const val TAG = "JarvisController"
         const val UNDO_WINDOW_MS = 5_000L
+        const val LISTEN_RESTART_BASE_MS = 250L
+        const val LISTEN_RESTART_STEP_MS = 100L
+        const val LISTEN_RESTART_MAX_MS = 600L
+        const val MAX_LISTEN_RESTARTS = 120
         const val FREEBUFF_PROVIDER_ID = "freebuff"
     }
 }
