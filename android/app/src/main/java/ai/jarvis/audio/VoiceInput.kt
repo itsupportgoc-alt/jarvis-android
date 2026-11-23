@@ -140,7 +140,12 @@ class VoiceInput(
                     error == SpeechRecognizer.ERROR_NO_MATCH ||
                         error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
                         error == SpeechRecognizer.ERROR_CLIENT ||
-                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                        // Some recogniser backends (notably Google's on certain
+                        // ROM/account configurations) return non-standard codes
+                        // such as 11 for a transient service fault. Treat those as
+                        // recoverable rather than a hard fault.
+                        error >= 10
                 listener.onError(messageFor(error), recoverable)
             }
 
@@ -196,7 +201,9 @@ class VoiceInput(
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The recogniser is busy. Try again."
                     SpeechRecognizer.ERROR_SERVER -> "The speech service failed."
                     SpeechRecognizer.ERROR_CLIENT -> "Speech input stopped."
-                    else -> "Speech recognition error $error."
+                    // Some recogniser backends return non-standard codes (e.g. 11)
+                    // for a transient service fault; retry rather than hard-fault.
+                    else -> "Speech recognition is having trouble. Try again in a moment."
                 }
         }
 }

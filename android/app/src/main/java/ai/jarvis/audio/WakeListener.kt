@@ -133,8 +133,10 @@ class WakeListener(
                     stop()
                     return
                 }
-                // Everything else (no match, timeout, client stop) is routine.
-                Log.d(TAG, "session ended with error $error")
+                // Everything else (no match, timeout, client stop, and non-standard
+                // codes such as 11 from some recogniser backends) is routine; the
+                // listener re-arms and keeps trying.
+                Log.d(TAG, "wake session ended with error $error")
                 restart(if (busy) 800 else 200)
             }
 
