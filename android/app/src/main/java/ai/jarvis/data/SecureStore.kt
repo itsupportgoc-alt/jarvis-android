@@ -4,6 +4,8 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
+import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -38,9 +40,40 @@ class SecureStore(
         }
         set(value) {
             if (value.isBlank()) {
-                prefs.edit().remove(KEY_API).apply()
+                prefs.edit().remove(KEY_API).commit()
             } else {
-                prefs.edit().putString(KEY_API, encrypt(value.toByteArray(Charsets.UTF_8))).apply()
+                prefs.edit().putString(KEY_API, encrypt(value.toByteArray(Charsets.UTF_8))).commit()
+            }
+        }
+
+    /**
+     * Stores the key and proves it can be read back.
+     *
+     * Keystore failures (an entry invalidated by a lock-screen change, a vendor
+     * keymaster fault) throw instead of silently dropping the write, so the UI
+     * can report what happened. A key that cannot be unwrapped is discarded and
+     * re-encrypted under a fresh master key rather than left unusable.
+     */
+    fun saveApiKey(value: String): Result<Unit> =
+        runCatching {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) {
+                prefs.edit().remove(KEY_API).commit()
+                return@runCatching
+            }
+            val blob =
+                try {
+                    encrypt(trimmed.toByteArray(Charsets.UTF_8))
+                } catch (error: GeneralSecurityException) {
+                    Log.w(TAG, "keystore unwrap failed; regenerating master key", error)
+                    resetMasterKey()
+                    encrypt(trimmed.toByteArray(Charsets.UTF_8))
+                }
+            check(prefs.edit().putString(KEY_API, blob).commit()) { "could not write preferences" }
+            val readBack =
+                prefs.getString(KEY_API, null)?.let { runCatching { decrypt(it) }.getOrNull() }
+            check(readBack != null && String(readBack, Charsets.UTF_8) == trimmed) {
+                "the stored key could not be read back"
             }
         }
 
@@ -57,6 +90,11 @@ class SecureStore(
         val key = ByteArray(32).also { SecureRandom().nextBytes(it) }
         prefs.edit().putString(KEY_DATA, encrypt(key)).apply()
         return key
+    }
+
+    private fun resetMasterKey() {
+        runCatching { keyStore.deleteEntry(ALIAS) }
+        prefs.edit().remove(KEY_DATA).commit()
     }
 
     private fun masterKey(): SecretKey {
@@ -101,6 +139,7 @@ class SecureStore(
     }
 
     private companion object {
+        const val TAG = "SecureStore"
         const val KEYSTORE = "AndroidKeyStore"
         const val ALIAS = "jarvis_master_v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

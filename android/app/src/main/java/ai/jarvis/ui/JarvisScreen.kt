@@ -183,7 +183,7 @@ fun JarvisScreen(controller: JarvisController) {
                         )
                         if (ui.needsSetup) {
                             Text(
-                                text = "Awaiting credentials. Add a Qwen API key in Settings.",
+                                text = "Awaiting credentials. Add an API key in Settings.",
                                 style = MonoSmall,
                                 color = JarvisMuted,
                                 modifier = Modifier.padding(top = 8.dp),
@@ -514,7 +514,7 @@ private fun phaseHint(
         muted && phase == Phase.SPEAKING -> "Muted"
         phase == Phase.IDLE -> "Tap MIC or type"
         phase == Phase.LISTENING -> "Go ahead"
-        phase == Phase.THINKING -> "Consulting Qwen"
+        phase == Phase.THINKING -> "Consulting the model"
         phase == Phase.SPEAKING -> "Speaking"
         else -> "Recovering"
     }

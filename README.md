@@ -7,7 +7,7 @@ remote reasoning, device tools, and an arc-reactor UI that reacts to real audio.
 
 ## Download
 
-**[Download JARVIS v0.1.1 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.1/jarvis-0.1.1-debug.apk)**
+**[Download JARVIS v0.1.2 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.2/jarvis-0.1.2-debug.apk)**
 
 Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
 (API 29). The APK is debug-signed for testing: enable "install unknown apps"
@@ -126,6 +126,15 @@ Both speak OpenAI Chat Completions — `POST {base_url}/chat/completions` with
 `Authorization: Bearer <key>` — so any other compatible host works too: type its
 base URL and two model IDs. Model IDs must exist for your key; check the
 provider's console or `GET {base_url}/models`.
+
+**Test before you talk to it.** `TEST CONNECTION` calls `GET {base_url}/models`
+with the key in the field (or the stored one) and reports the real answer:
+`Key accepted. N models available.` plus tappable model chips, or the exact
+failure — `HTTP 401: invalid api key`, `HTTP 403: recharge_required`, an
+timeout, or a DNS error. The BlackPig relay returns
+`403 recharge_required` for accounts with no completed top-up even when the key
+is valid; complete any recharge under **Recharge** in the console sidebar and the
+same key starts working without re-entering it.
 
 The key is entered on the phone and encrypted with a non-exportable AES-256-GCM
 key in the Android Keystore. It is never written to plain preferences, logs or

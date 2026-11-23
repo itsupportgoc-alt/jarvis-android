@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -63,6 +66,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,12 +99,43 @@ fun SettingsSheet(
     var webhook by remember(settings.webhookUrl) { mutableStateOf(settings.webhookUrl) }
     var wake by remember(settings.wakeSensitivity) { mutableFloatStateOf(settings.wakeSensitivity) }
 
+    val keyboard = LocalSoftwareKeyboardController.current
+    var keyStatus by remember { mutableStateOf<String?>(null) }
+    var keyStatusOk by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var discoveredModels by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    fun saveKey() {
+        val ok = controller.saveApiKey(apiKey)
+        keyStatusOk = ok
+        keyStatus =
+            if (ok) {
+                "Key saved and verified in the Keystore."
+            } else {
+                "Key was not saved. Check the value and try again."
+            }
+        if (ok) apiKey = ""
+        keyboard?.hide()
+    }
+
+    fun testKey() {
+        testing = true
+        keyStatus = "Testing ${baseUrl.ifBlank { settings.baseUrl }} …"
+        controller.testProvider(baseUrl, apiKey) { result ->
+            testing = false
+            keyStatusOk = result.ok
+            keyStatus = result.message
+            if (result.ok && result.models.isNotEmpty()) discoveredModels = result.models
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = JarvisSurface,
     ) {
         LazyColumn(
+            modifier = Modifier.imePadding(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -128,11 +165,16 @@ fun SettingsSheet(
             item {
                 OutlinedTextField(
                     value = apiKey,
-                    onValueChange = { apiKey = it },
+                    onValueChange = {
+                        apiKey = it
+                        keyStatus = null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     textStyle = MonoBody,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Password),
+                    keyboardActions = KeyboardActions(onDone = { saveKey() }),
                     label = { Text("API key", style = MonoSmall) },
                     placeholder = {
                         Text(
@@ -146,7 +188,7 @@ fun SettingsSheet(
                     },
                     supportingText = {
                         Text(
-                            "Paste the key from your provider's console. Stored with a non-exportable Keystore key, never in plain preferences.",
+                            "Paste the key from your provider's console, then press SAVE KEY. Stored with a non-exportable Keystore key, never in plain preferences.",
                             style = MonoSmall,
                         )
                     },
@@ -156,16 +198,31 @@ fun SettingsSheet(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
-                        onClick = {
-                            controller.saveApiKey(apiKey)
-                            apiKey = ""
-                        },
+                        onClick = { saveKey() },
                         enabled = apiKey.isNotBlank(),
-                    ) { Text("SAVE KEY", style = MonoSmall, color = JarvisCyan) }
+                    ) {
+                        Text(
+                            "SAVE KEY",
+                            style = MonoSmall,
+                            color = if (apiKey.isNotBlank()) JarvisCyan else JarvisMuted,
+                        )
+                    }
+                    TextButton(
+                        onClick = { testKey() },
+                        enabled = !testing && (apiKey.isNotBlank() || settings.hasApiKey),
+                    ) { Text(if (testing) "TESTING…" else "TEST CONNECTION", style = MonoSmall, color = JarvisGold) }
+                }
+                Text(
+                    if (settings.hasApiKey) "Key present" else "No key configured",
+                    style = MonoSmall,
+                    color = if (settings.hasApiKey) JarvisCyan else JarvisAmber,
+                )
+                keyStatus?.let { message ->
                     Text(
-                        if (settings.hasApiKey) "Key present" else "No key configured",
+                        message,
                         style = MonoSmall,
-                        color = if (settings.hasApiKey) JarvisCyan else JarvisAmber,
+                        color = if (keyStatusOk) JarvisCyan else JarvisRed,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
@@ -209,9 +266,33 @@ fun SettingsSheet(
                     }) { Text("APPLY & RESTART ENGINE", style = MonoSmall, color = JarvisCyan) }
                 }
                 Text(
-                    "Presets fill the endpoint: BlackPig relay (api.vv666.ai, OpenAI-compatible) or DashScope. Model IDs must exist for your key.",
+                    "Presets fill the endpoint: BlackPig relay (api.vv666.ai, OpenAI-compatible) or DashScope. Model IDs must exist for your key — use TEST CONNECTION to read them.",
                     style = MonoSmall,
                 )
+                if (discoveredModels.isNotEmpty()) {
+                    Text(
+                        "Models allowed for this key (tap to use):",
+                        style = MonoSmall,
+                        color = JarvisGold,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        discoveredModels.forEach { id ->
+                            FilterChip(
+                                selected = model == id,
+                                onClick = {
+                                    model = id
+                                    controller.saveEndpoint(baseUrl, id, fallback)
+                                },
+                                label = { Text(id, style = MonoSmall) },
+                                colors = chipColors(),
+                            )
+                        }
+                    }
+                }
             }
 
             item { Divider() }

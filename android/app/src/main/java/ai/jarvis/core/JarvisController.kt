@@ -697,9 +697,10 @@ class JarvisController(
 
     private fun codeMessage(code: Int): String =
         when (code) {
-            JarvisNative.CODE_NOT_CONFIGURED -> "Add a Qwen API key in Settings."
+            JarvisNative.CODE_NOT_CONFIGURED -> "Add an API key in Settings."
             JarvisNative.CODE_PERMISSION_DENIED -> "Android denied a permission JARVIS needs."
-            JarvisNative.CODE_NETWORK -> "Qwen could not be reached. Check the connection and endpoint."
+            JarvisNative.CODE_NETWORK ->
+                "The reasoning endpoint could not be reached. Check the connection, base URL and key."
             JarvisNative.CODE_MODEL -> "The model or its local files are unusable."
             JarvisNative.CODE_AUDIO -> "The audio device failed."
             JarvisNative.CODE_CANCELLED -> "Cancelled."
@@ -734,10 +735,45 @@ class JarvisController(
 
     fun voicePresets(): List<VoicePreset> = VOICE_PRESETS
 
-    fun saveApiKey(key: String) {
-        secure.apiKey = key.trim()
+    fun saveApiKey(raw: String): Boolean {
+        val key = ProviderProbe.sanitizeKey(raw)
+        if (key.isEmpty()) return false
+        val failure =
+            secure.saveApiKey(key).exceptionOrNull()
+        if (failure != null) {
+            Log.e(TAG, "key store rejected the key", failure)
+            reportError("The key could not be stored: ${failure.message ?: "keystore error"}")
+            return false
+        }
         settingsStore.setApiKeyPresent(secure.hasApiKey)
-        rebuildEngine()
+        // Creating the native engine parses config and touches the filesystem;
+        // do it off the main thread so the sheet answers immediately.
+        scope.launch(Dispatchers.IO) {
+            runCatching { rebuildEngine() }.onFailure { error ->
+                Log.e(TAG, "engine rebuild failed", error)
+                reportError(error.message ?: "The engine could not start with that key.")
+            }
+        }
+        return true
+    }
+
+    /**
+     * Proves the endpoint accepts a key and returns the model IDs it allows.
+     * `key` is the field being typed; when blank the stored key is used.
+     */
+    fun testProvider(
+        baseUrl: String,
+        key: String,
+        onResult: (ProviderProbe.Result) -> Unit,
+    ) {
+        val effective = ProviderProbe.sanitizeKey(key).ifEmpty { secure.apiKey }
+        scope.launch {
+            val result =
+                withContext(Dispatchers.IO) {
+                    ProviderProbe.listModels(baseUrl.ifBlank { settingsStore.current.baseUrl }, effective)
+                }
+            onResult(result)
+        }
     }
 
     fun saveEndpoint(
