@@ -360,6 +360,13 @@ data class JarvisSettings(
     val wakeWordEnabled: Boolean = false,
     val webhookUrl: String = "",
     val hasApiKey: Boolean = false,
+    /** Auto-confirm messaging tools so the user doesn't need to tap confirm. */
+    val autoSendMessages: Boolean = false,
+    // GitHub sync config
+    val githubToken: String = "",
+    val githubOwner: String = "",
+    val githubRepo: String = "",
+    val autoSync: Boolean = false,
 ) {
     companion object {
         /** Freebuff's OpenAI-compatible API is the default endpoint. */
@@ -447,6 +454,11 @@ class SettingsStore(
             .putBoolean("wake_word_enabled", next.wakeWordEnabled)
             .putString("webhook_url", next.webhookUrl)
             .putBoolean("has_api_key", next.hasApiKey)
+            .putBoolean("auto_send_messages", next.autoSendMessages)
+            .putString("github_token", next.githubToken)
+            .putString("github_owner", next.githubOwner)
+            .putString("github_repo", next.githubRepo)
+            .putBoolean("github_auto_sync", next.autoSync)
             .apply()
         _settings.value = next
     }
@@ -477,6 +489,14 @@ class SettingsStore(
     fun setWakeWordEnabled(enabled: Boolean) = update { it.copy(wakeWordEnabled = enabled) }
 
     fun setWebhook(url: String) = update { it.copy(webhookUrl = url.trim()) }
+
+    fun setGitHubConfig(token: String, owner: String, repo: String) = update {
+        it.copy(githubToken = token.trim(), githubOwner = owner.trim(), githubRepo = repo.trim())
+    }
+
+    fun setAutoSync(enabled: Boolean) = update { it.copy(autoSync = enabled) }
+
+    fun setAutoSendMessages(enabled: Boolean) = update { it.copy(autoSendMessages = enabled) }
 
     fun setTrusted(
         tool: String,

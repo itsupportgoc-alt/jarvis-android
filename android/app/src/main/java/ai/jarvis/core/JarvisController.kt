@@ -5,6 +5,8 @@ import ai.jarvis.audio.AudioCapture
 import ai.jarvis.audio.VoiceEngine
 import ai.jarvis.audio.VoiceInput
 import ai.jarvis.data.AnimationMode
+import ai.jarvis.data.ConversationMemory
+import ai.jarvis.data.GithubPusher
 import ai.jarvis.data.JarvisSettings
 import ai.jarvis.data.SecureStore
 import ai.jarvis.data.SettingsStore
@@ -115,6 +117,7 @@ class JarvisController(
     private val registry = ToolRegistry(app)
     private val haptics = Haptics(app)
     private val lineIds = AtomicLong(1)
+    private val conversationMemory: ConversationMemory = ConversationMemory(app)
 
     val settings: StateFlow<JarvisSettings> = settingsStore.settings
 
@@ -194,7 +197,14 @@ class JarvisController(
                         reportError("The assistant engine is not ready.")
                         return
                     }
-                    val code = JarvisNative.nativeSubmitText(current, text)
+                    // Prepend conversation context for memory
+                    val context = conversationMemory.getConversationContext(5) // Last 5 exchanges
+                    val promptWithMemory = if (context.isNotBlank()) {
+                        "$context\n\nCurrent input: $text"
+                    } else {
+                        text
+                    }
+                    val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
                     if (code != 0) reportError(codeMessage(code))
                 }
 
@@ -440,6 +450,14 @@ class JarvisController(
                                 },
                         )
                     }
+                    // Save to conversation memory
+                    if (text.isNotBlank()) {
+                        conversationMemory.addAssistantMessage(text)
+                        // Auto-sync to GitHub if enabled
+                        if (settingsStore.current.autoSync && settingsStore.current.githubToken.isNotBlank()) {
+                            syncToGitHub()
+                        }
+                    }
                 }
 
                 "speak" -> {
@@ -512,13 +530,22 @@ class JarvisController(
         Log.i(TAG, "command received: \"$trimmed\"")
         if (!ensureEngine()) return
         appendLine(Speaker.USER, trimmed)
+        // Save to conversation memory
+        conversationMemory.addUserMessage(trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
         val current = handle
         if (current == 0L) {
             reportError("The assistant engine is not ready.")
             return
         }
-        val code = JarvisNative.nativeSubmitText(current, trimmed)
+        // Prepend conversation context for memory
+        val context = conversationMemory.getConversationContext(5) // Last 5 exchanges
+        val promptWithMemory = if (context.isNotBlank()) {
+            "$context\n\nCurrent input: $trimmed"
+        } else {
+            trimmed
+        }
+        val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
         if (code != 0) reportError(codeMessage(code))
     }
 
@@ -703,7 +730,10 @@ class JarvisController(
             }
             return
         }
-        val trusted = name in settingsStore.current.trustedTools
+        // Auto-send: messaging tools skip confirmation when autoSendMessages is enabled
+        val autoSend = settingsStore.current.autoSendMessages &&
+            name in setOf("send_sms", "send_whatsapp", "send_message")
+        val trusted = name in settingsStore.current.trustedTools || autoSend
         if (tool.spec.confirmation == Confirmation.REQUIRED && !trusted) {
             haptics.tick()
             _ui.update {
@@ -977,6 +1007,107 @@ class JarvisController(
         toolName: String,
         trusted: Boolean,
     ) = settingsStore.setTrusted(toolName, trusted)
+
+    fun setAutoSendMessages(enabled: Boolean) {
+        settingsStore.setAutoSendMessages(enabled)
+        // When enabling auto-send, mark all messaging tools as trusted
+        if (enabled) {
+            setTrusted("send_sms", true)
+            setTrusted("send_whatsapp", true)
+            setTrusted("send_message", true)
+        }
+    }
+
+    // GitHub sync
+    fun setGitHubConfig(token: String, owner: String, repo: String) {
+        settingsStore.setGitHubConfig(token, owner, repo)
+    }
+
+    fun setAutoSync(enabled: Boolean) {
+        settingsStore.setAutoSync(enabled)
+    }
+
+    fun testGitHubConnection() {
+        val token = settingsStore.current.githubToken
+        if (token.isBlank() || settingsStore.current.githubOwner.isBlank() || settingsStore.current.githubRepo.isBlank()) {
+            reportError("GitHub not configured. Set token, owner, and repo in Settings.")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val pusher = GithubPusher(token, settingsStore.current.githubOwner, settingsStore.current.githubRepo)
+            val result = pusher.verifyToken()
+            withContext(Dispatchers.Main) {
+                if (result.success) {
+                    reportError("GitHub connected: ${result.message}")
+                    clearError()
+                } else {
+                    reportError("GitHub: ${result.message}")
+                }
+            }
+        }
+    }
+
+    fun pushToGitHub() {
+        val token = settingsStore.current.githubToken
+        val owner = settingsStore.current.githubOwner
+        val repo = settingsStore.current.githubRepo
+        if (token.isBlank() || owner.isBlank() || repo.isBlank()) {
+            reportError("GitHub not configured. Set token, owner, and repo in Settings.")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            // Get conversation memory as JSON
+            val memory = conversationMemory.getRecentMessages()
+            val jsonArray = org.json.JSONArray()
+            for (entry in memory) {
+                val obj = org.json.JSONObject()
+                obj.put("id", entry.id)
+                obj.put("speaker", entry.speaker)
+                obj.put("text", entry.text)
+                obj.put("timestamp", entry.timestamp)
+                obj.put("sessionId", entry.sessionId)
+                jsonArray.put(obj)
+            }
+            val memoryJson = "{\"sessionId\": \"${ConversationMemory.currentSessionId(app)}\", \"messages\": ${jsonArray.toString()}}"
+
+            val pusher = GithubPusher(token, owner, repo)
+            val result = pusher.pushConversation(memoryJson, "conversations/memory.json")
+            withContext(Dispatchers.Main) {
+                if (result.success) {
+                    reportError("Pushed to GitHub: ${result.url}")
+                    clearError()
+                } else {
+                    reportError("GitHub push failed: ${result.message}")
+                }
+            }
+        }
+    }
+
+    private fun syncToGitHub() {
+        val token = settingsStore.current.githubToken
+        val owner = settingsStore.current.githubOwner
+        val repo = settingsStore.current.githubRepo
+        if (token.isBlank() || owner.isBlank() || repo.isBlank()) return
+
+        scope.launch(Dispatchers.IO) {
+            val memory = conversationMemory.getRecentMessages()
+            val jsonArray = org.json.JSONArray()
+            for (entry in memory) {
+                val obj = org.json.JSONObject()
+                obj.put("id", entry.id)
+                obj.put("speaker", entry.speaker)
+                obj.put("text", entry.text)
+                obj.put("timestamp", entry.timestamp)
+                obj.put("sessionId", entry.sessionId)
+                jsonArray.put(obj)
+            }
+            val memoryJson = "{\"sessionId\": \"${ConversationMemory.currentSessionId(app)}\", \"messages\": ${jsonArray.toString()}}"
+
+            val pusher = GithubPusher(token, owner, repo)
+            pusher.pushConversation(memoryJson, "conversations/memory.json")
+            // Silent sync, no error shown
+        }
+    }
 
     fun openSpecialAccess(permission: String) =
         when (permission) {

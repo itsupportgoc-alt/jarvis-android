@@ -106,6 +106,9 @@ fun SettingsSheet(
     var volume by remember(settings.volume) { mutableFloatStateOf(settings.volume) }
     var webhook by remember(settings.webhookUrl) { mutableStateOf(settings.webhookUrl) }
     var wake by remember(settings.wakeSensitivity) { mutableFloatStateOf(settings.wakeSensitivity) }
+    var githubToken by remember(settings.githubToken) { mutableStateOf(settings.githubToken) }
+    var githubOwner by remember(settings.githubOwner) { mutableStateOf(settings.githubOwner) }
+    var githubRepo by remember(settings.githubRepo) { mutableStateOf(settings.githubRepo) }
 
     val keyboard = LocalSoftwareKeyboardController.current
     var keyStatus by remember { mutableStateOf<String?>(null) }
@@ -576,6 +579,129 @@ fun SettingsSheet(
                     "Google Play policy: call log, SMS and accessibility are restricted permissions. A public listing needs a declared core use, a Permissions Declaration Form, and may still be rejected. This build is intended for sideloaded/personal use.",
                     style = MonoSmall,
                     color = JarvisAmber,
+                )
+            }
+
+            item { Divider() }
+
+            // ---------------- Auto-send messages ----------------
+            item { SectionTitle("AUTO-SEND MESSAGES") }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Send messages without confirmation", style = MonoBody, color = JarvisText)
+                        Text(
+                            "When enabled, messaging tools (SMS, WhatsApp, etc.) send automatically " +
+                                "without asking you to confirm first. Turn off if you want to approve each message.",
+                            style = MonoSmall,
+                            color = JarvisMuted,
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoSendMessages,
+                        onCheckedChange = { controller.setAutoSendMessages(it) },
+                    )
+                }
+            }
+            item {
+                Text(
+                    "SMS: sends directly, no tap needed.\n" +
+                        "WhatsApp: opens with message pre-filled, may need one tap.\n" +
+                        "Messenger/Telegram/Signal/Instagram: opens the app with the message ready to send. " +
+                        "These apps vary - some need you to tap send inside the app.\n\n" +
+                        "Note: Android security prevents fully automatic sending to third-party apps. " +
+                        "Only SMS can send without any user interaction. For other apps, the best we can do " +
+                        "is open them with the message prepared - you may still need to tap send.",
+                    style = MonoSmall,
+                    color = JarvisAmber,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+
+            item { Divider() }
+
+            // ---------------- GitHub Sync ----------------
+            item { SectionTitle("GITHUB SYNC") }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Push conversations to GitHub", style = MonoBody, color = JarvisText)
+                        Text(
+                            "Save your conversation history to a GitHub repo. Your token is stored in the Android Keystore.",
+                            style = MonoSmall,
+                            color = JarvisMuted,
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoSync,
+                        onCheckedChange = { controller.setAutoSync(it) },
+                    )
+                }
+            }
+            item {
+                OutlinedTextField(
+                    value = settings.githubToken,
+                    onValueChange = { },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    textStyle = MonoBody,
+                    label = { Text("GitHub token", style = MonoSmall) },
+                    placeholder = { Text("ghp_... or github_pat_...", style = MonoSmall) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = fieldColors(),
+                )
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = settings.githubOwner,
+                        onValueChange = { },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MonoBody,
+                        label = { Text("Owner / Org", style = MonoSmall) },
+                        colors = fieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = settings.githubRepo,
+                        onValueChange = { },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MonoBody,
+                        label = { Text("Repo name", style = MonoSmall) },
+                        colors = fieldColors(),
+                    )
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            controller.setGitHubConfig(githubToken, githubOwner, githubRepo)
+                            controller.testGitHubConnection()
+                        },
+                        enabled = githubToken.isNotBlank() &&
+                            githubOwner.isNotBlank() &&
+                            githubRepo.isNotBlank(),
+                    ) {
+                        Text("TEST CONNECTION", style = MonoSmall, color = JarvisGold)
+                    }
+                    TextButton(
+                        onClick = {
+                            controller.setGitHubConfig(githubToken, githubOwner, githubRepo)
+                            controller.pushToGitHub()
+                        },
+                        enabled = githubToken.isNotBlank() &&
+                            githubOwner.isNotBlank() &&
+                            githubRepo.isNotBlank(),
+                    ) {
+                        Text("PUSH NOW", style = MonoSmall, color = JarvisCyan)
+                    }
+                }
+                Text(
+                    "Token: Settings → Developer settings → Personal access tokens (classic). Needs repo scope.",
+                    style = MonoSmall,
+                    color = JarvisMuted,
                 )
             }
 

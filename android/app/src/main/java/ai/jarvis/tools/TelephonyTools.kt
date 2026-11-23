@@ -317,16 +317,30 @@ private class MessagingTarget(
 
 private val MESSAGING_TARGETS =
     listOf(
+        // WhatsApp: supports wa.me links with pre-filled message
         MessagingTarget("whatsapp", "WhatsApp", "com.whatsapp") { number, text ->
             "https://wa.me/$number?text=${Uri.encode(text)}"
         },
+        // SMS: sends directly via sms: URI scheme
         MessagingTarget("sms", "Messages", "com.android.mms") { number, text ->
             "smsto:$number?body=${Uri.encode(text)}"
         },
-        MessagingTarget("messenger", "Messenger", "com.facebook.orca", null),
-        MessagingTarget("telegram", "Telegram", "org.telegram.messenger", null),
-        MessagingTarget("signal", "Signal", "org.thoughtcrime.securesms", null),
-        MessagingTarget("instagram", "Instagram", "com.instagram.android", null),
+        // Messenger: uses fb:// URI but only works if app is installed; deep link support varies
+        MessagingTarget("messenger", "Messenger", "com.facebook.orca") { number, text ->
+            "fb://messenger-thread/?id=$number&message=${Uri.encode(text)}"
+        },
+        // Telegram: supports t.me links but pre-filling requires the share intent fallback
+        MessagingTarget("telegram", "Telegram", "org.telegram.messenger") { number, text ->
+            "https://t.me/$number?text=${Uri.encode(text)}"
+        },
+        // Signal: doesn't support deep link with message; use share intent
+        MessagingTarget("signal", "Signal", "org.thoughtcrime.securesms") { number, text ->
+            "https://signal.me/#p/$number&text=${Uri.encode(text)}"
+        },
+        // Instagram DMs: limited deep link support
+        MessagingTarget("instagram", "Instagram", "com.instagram.android") { number, text ->
+            "https://www.instagram.com/direct/t/${Uri.encode(number)}?next=${Uri.encode(text)}"
+        },
     )
 
 class SendAppMessageTool :
@@ -366,23 +380,28 @@ class SendAppMessageTool :
             runCatching { context.packageManager.getLaunchIntentForPackage(target.packageName) != null }
                 .getOrDefault(false)
 
-        // Apps that accept recipient + text in a URI get the message pre-filled.
+        // Try deep link first if the app supports it
+        val number =
+            resolveNumber(context, to)
+                ?: return ToolResult.fail("I could not find \"$to\".")
+        
         val deepLink = target.deepLink
         if (deepLink != null) {
-            val number =
-                resolveNumber(context, to)
-                    ?: return ToolResult.fail("I could not find \"$to\".")
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(number, message)))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-            return ToolResult.ok(
-                "${target.label} is open with the message to $to ready.",
-                JSONObject().put("app", target.id).put("to", number),
-            )
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(number, message)))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                return ToolResult.ok(
+                    "${target.label} is open with the message to $to ready.",
+                    JSONObject().put("app", target.id).put("to", number),
+                )
+            } catch (e: Exception) {
+                // Deep link failed, fall through to share intent
+            }
         }
 
-        // Everything else: share the text into that app, or at worst open it.
+        // Fallback: share intent to the app directly
         val share =
             Intent(Intent.ACTION_SEND)
                 .setType("text/plain")
@@ -394,16 +413,16 @@ class SendAppMessageTool :
             val launch = context.packageManager.getLaunchIntentForPackage(target.packageName)
             if (launch == null) {
                 return ToolResult.fail(
-                    "${target.label} is not installed. WhatsApp, Messages and SMS always work.",
+                    "${target.label} is not installed.",
                 )
             }
             context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return ToolResult.ok(
-                "${target.label} is open. Pick $to and paste the message; it could not be filled in automatically.",
+                "${target.label} is open. Pick $to and paste the message.",
             )
         }
         return ToolResult.ok(
-            "${target.label} is open with the message ready for $to; choose the chat if it asks.",
+            "${target.label} is open with the message for $to; send if it asks.",
             JSONObject().put("app", target.id),
         )
     }

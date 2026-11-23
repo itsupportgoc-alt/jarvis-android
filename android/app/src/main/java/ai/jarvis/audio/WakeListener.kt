@@ -74,10 +74,11 @@ class WakeListener(
             // EXTRA_PARTIAL_RESULTS=false + the offline recogniser).
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            // On this device the offline recogniser advertises the locale but
-            // returns empty results (AMBIENT_ONESHOT + "empty final recognition
-            // results"), which silently breaks the wake word. Ask for an online
-            // recogniser so the wake word actually lands.
+            // On this device (Redmi 10, MIUI) the offline recogniser advertises
+            // the locale but returns empty results ("empty final recognition
+            // results" / NO_SPEECH_DETECTED) even though speech was detected.
+            // Explicitly request offline=false so MIUI picks a network recogniser
+            // instead of the broken offline one that returns empty results.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
             // An always-on listener has to keep each session open long enough to
