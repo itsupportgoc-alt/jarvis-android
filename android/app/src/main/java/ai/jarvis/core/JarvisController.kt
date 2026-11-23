@@ -93,6 +93,8 @@ data class JarvisUiState(
     val needsSetup: Boolean = false,
     val muted: Boolean = false,
     val micPermissionNeeded: Boolean = false,
+    /** Denied with "don't ask again": only app Settings can grant it now. */
+    val micBlocked: Boolean = false,
     val undoLabel: String? = null,
     val lastReply: String = "",
 )
@@ -172,6 +174,14 @@ class JarvisController(
                 override fun onFinal(text: String) {
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
+                    // Recognition runs locally, so the transcript above is real
+                    // even before a key exists; only the answer needs the key.
+                    if (!ensureEngine()) {
+                        reportError(
+                            "I heard you, but no API key is set. Add your Freebuff key in Settings for an answer.",
+                        )
+                        return
+                    }
                     val current = handle
                     if (current == 0L) {
                         reportError("The assistant engine is not ready.")
@@ -487,20 +497,40 @@ class JarvisController(
         if (code != 0) reportError(codeMessage(code))
     }
 
+    /**
+     * The microphone is checked first and is deliberately **not** gated on an
+     * API key: the platform recogniser runs on-device, so the user can speak and
+     * read the transcript before any key exists. Only the reply needs a key, and
+     * `VoiceInput.onFinal` reports that. Gating here made MIC a silent no-op in
+     * a fresh install, which looks exactly like a dead microphone.
+     */
     fun startListening(): Boolean {
-        if (!ensureEngine()) return false
         if (!Permissions.granted(app, Permissions.MIC)) {
             _ui.update { it.copy(micPermissionNeeded = true) }
             return false
         }
+        // The Rust VAD/Whisper path feeds PCM into the engine, so that mode
+        // genuinely cannot run without one.
+        if (settingsStore.current.voiceInput == VoiceInputMode.ON_DEVICE && !ensureEngine()) {
+            _ui.update { it.copy(phase = Phase.ERROR) }
+            return false
+        }
         _ui.update { it.copy(micPermissionNeeded = false, error = null, partial = "") }
-        JarvisService.start(app)
+        // A blocked foreground-service start must not kill the mic: the system
+        // recogniser holds the microphone in its own process.
+        runCatching { JarvisService.start(app) }
+            .onFailure { Log.w(TAG, "foreground service start failed", it) }
         haptics.tick()
         _ui.update { it.copy(phase = Phase.LISTENING) }
-        return when (settingsStore.current.voiceInput) {
-            VoiceInputMode.SYSTEM -> voiceInput.start()
-            VoiceInputMode.ON_DEVICE -> startNativeCapture()
+        val started =
+            when (settingsStore.current.voiceInput) {
+                VoiceInputMode.SYSTEM -> voiceInput.start()
+                VoiceInputMode.ON_DEVICE -> startNativeCapture()
+            }
+        if (!started) {
+            _ui.update { it.copy(phase = Phase.ERROR, micRms = 0f) }
         }
+        return started
     }
 
     private fun startNativeCapture(): Boolean {
@@ -556,12 +586,22 @@ class JarvisController(
         }
     }
 
-    fun onMicPermissionResult(granted: Boolean) {
-        _ui.update { it.copy(micPermissionNeeded = false) }
+    /**
+     * `canAskAgain` is false once Android will no longer show the system prompt
+     * (second denial or "don't ask again"); the UI then offers app Settings,
+     * because relaunching the permission request would silently do nothing.
+     */
+    fun onMicPermissionResult(
+        granted: Boolean,
+        canAskAgain: Boolean = true,
+    ) {
+        _ui.update { it.copy(micPermissionNeeded = false, micBlocked = !granted && !canAskAgain) }
         if (granted) {
             startListening()
-        } else {
+        } else if (canAskAgain) {
             reportError("Without the microphone, JARVIS works in text mode only.")
+        } else {
+            reportError("Microphone access is blocked. Allow it in Settings → Permissions → Microphone.")
         }
     }
 

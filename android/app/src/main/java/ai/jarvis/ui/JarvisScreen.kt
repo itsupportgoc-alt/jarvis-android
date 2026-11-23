@@ -17,6 +17,7 @@ import ai.jarvis.ui.theme.MonoBody
 import ai.jarvis.ui.theme.MonoSmall
 import ai.jarvis.ui.theme.rememberAnimationsEnabled
 import android.Manifest
+import android.app.Activity
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,7 +90,12 @@ fun JarvisScreen(controller: JarvisController) {
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { granted ->
-            controller.onMicPermissionResult(granted)
+            val activity = context as? Activity
+            val canAskAgain =
+                activity
+                    ?.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+                    ?: true
+            controller.onMicPermissionResult(granted, canAskAgain)
             if (granted &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 !Permissions.granted(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -291,14 +297,30 @@ fun JarvisScreen(controller: JarvisController) {
                 title = { Text("MICROPHONE", style = MonoSmall, color = JarvisCyan) },
                 text = {
                     Text(
-                        text = stringResource(R.string.rationale_mic_body),
+                        text =
+                            if (ui.micBlocked) {
+                                stringResource(R.string.rationale_mic_blocked)
+                            } else {
+                                stringResource(R.string.rationale_mic_body)
+                            },
                         style = MonoBody,
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }) { Text("ALLOW", style = MonoSmall, color = JarvisCyan) }
+                        if (ui.micBlocked) {
+                            Permissions.openAppSettings(context)
+                            controller.dismissMicRequest()
+                        } else {
+                            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }) {
+                        Text(
+                            if (ui.micBlocked) "OPEN SETTINGS" else "ALLOW",
+                            style = MonoSmall,
+                            color = JarvisCyan,
+                        )
+                    }
                 },
                 dismissButton = {
                     TextButton(onClick = { controller.dismissMicRequest() }) {

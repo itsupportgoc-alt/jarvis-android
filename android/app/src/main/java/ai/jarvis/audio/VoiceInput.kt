@@ -44,6 +44,9 @@ class VoiceInput(
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
 
+    /** Set by [cancel]; suppresses the platform's trailing ERROR_CLIENT / results. */
+    private var cancelled = false
+
     val isAvailable: Boolean get() = SpeechRecognizer.isRecognitionAvailable(context)
 
     fun start(): Boolean {
@@ -66,10 +69,14 @@ class VoiceInput(
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.UK.toLanguageTag())
+                // The device language, not a hardcoded en-GB: an offline model
+                // is only usable for the locale actually installed, and with
+                // EXTRA_PREFER_OFFLINE a missing en-GB model fails the request.
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 700)
             }
+        cancelled = false
         listening = true
         engine.startListening(intent)
         return true
@@ -82,6 +89,7 @@ class VoiceInput(
     }
 
     fun cancel() {
+        cancelled = true
         listening = false
         runCatching { recognizer?.cancel() }
     }
@@ -114,6 +122,10 @@ class VoiceInput(
             override fun onError(error: Int) {
                 listening = false
                 listener.onLevel(0f)
+                if (cancelled) {
+                    cancelled = false
+                    return
+                }
                 val recoverable =
                     error == SpeechRecognizer.ERROR_NO_MATCH ||
                         error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
@@ -121,6 +133,10 @@ class VoiceInput(
             }
 
             override fun onResults(results: Bundle?) {
+                if (cancelled) {
+                    cancelled = false
+                    return
+                }
                 listening = false
                 listener.onLevel(0f)
                 val text =

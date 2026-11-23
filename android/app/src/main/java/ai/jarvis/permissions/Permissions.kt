@@ -84,6 +84,16 @@ object Permissions {
     /** Tools that Google Play restricts; shown with an explicit policy note. */
     fun isRestricted(tool: Tool): Boolean = tool.spec.restricted
 
+    /** App info screen, for permissions that can no longer be requested in-app. */
+    fun openAppSettings(context: Context) {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
     fun openWriteSettings(context: Context) {
         context.startActivity(
             Intent(
