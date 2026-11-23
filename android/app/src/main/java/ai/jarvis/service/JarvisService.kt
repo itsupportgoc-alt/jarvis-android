@@ -85,6 +85,7 @@ class JarvisService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "service destroying; wake listener was ${if (wake != null) "active" else "null"}")
         phaseWatcher?.cancel()
         wakeSyncJob?.cancel()
         scope.cancel()

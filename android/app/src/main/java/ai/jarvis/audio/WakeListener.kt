@@ -68,12 +68,17 @@ class WakeListener(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
             )
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            // Return partial results so the listener can react faster and so the
+            // platform recogniser actually populates RESULTS_RECOGNITION instead of
+            // returning an empty bundle (seen on this device with
+            // EXTRA_PARTIAL_RESULTS=false + the offline recogniser).
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            // Deliberately not forcing EXTRA_PREFER_OFFLINE: on some ROMs the
-            // on-device model advertises the locale but returns empty results,
-            // which silently breaks the wake word. The platform picks the
-            // best available recogniser instead.
+            // On this device the offline recogniser advertises the locale but
+            // returns empty results (AMBIENT_ONESHOT + "empty final recognition
+            // results"), which silently breaks the wake word. Ask for an online
+            // recogniser so the wake word actually lands.
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
             // An always-on listener has to keep each session open long enough to
             // hear the phrase. With EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS
@@ -146,11 +151,22 @@ class WakeListener(
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull()
                         .orEmpty()
+                Log.w(TAG, "onResults: \"$text\"")
                 handleTranscript(text)
                 restart(200)
             }
 
-            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onPartialResults(partialResults: Bundle?) {
+                val text =
+                    partialResults
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+                        .orEmpty()
+                if (text.isNotBlank()) {
+                    Log.w(TAG, "onPartialResults: \"$text\"")
+                    handleTranscript(text)
+                }
+            }
 
             override fun onEvent(
                 eventType: Int,
