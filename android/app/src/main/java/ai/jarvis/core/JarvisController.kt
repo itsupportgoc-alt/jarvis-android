@@ -499,6 +499,7 @@ class JarvisController(
     fun submitText(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        Log.i(TAG, "command received: \"$trimmed\"")
         if (!ensureEngine()) return
         appendLine(Speaker.USER, trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
@@ -832,7 +833,7 @@ class JarvisController(
     private fun capabilityLabel(name: String): String =
         when (name) {
             "call_contact", "answer_call", "end_call" -> "Calling…"
-            "send_sms", "send_whatsapp" -> "Messaging…"
+            "send_sms", "send_whatsapp", "send_message" -> "Messaging…"
             "search_contacts", "get_contact_number" -> "Looking up…"
             "search_web", "open_url", "navigate_to", "find_nearby" -> "Searching…"
             "set_alarm", "set_timer", "create_event", "read_today_events" -> "Scheduling…"

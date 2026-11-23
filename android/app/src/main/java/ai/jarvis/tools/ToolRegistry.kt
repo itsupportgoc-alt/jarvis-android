@@ -58,6 +58,9 @@ class ToolRegistry private constructor(
             "call_contact" -> "call ${args.optString("name", "this contact")}"
             "send_sms" -> "message ${args.optString("to", "this contact")}"
             "send_whatsapp" -> "message ${args.optString("to", "this contact")} on WhatsApp"
+            "send_message" ->
+                "open ${args.optString("app", "a messaging app")} with a message to " +
+                    args.optString("to", "this contact")
             "create_event" -> "add \"${args.optString("title", "an event")}\" to your calendar"
             "set_dnd" -> if (args.optBoolean("enabled", true)) "turn on Do Not Disturb" else "turn off Do Not Disturb"
             "end_call" -> "end the current call"
@@ -79,6 +82,7 @@ class ToolRegistry private constructor(
             SendSmsTool(),
             ReadSmsTool(),
             SendWhatsAppTool(),
+            SendAppMessageTool(),
             // Contacts
             SearchContactsTool(),
             GetContactNumberTool(),

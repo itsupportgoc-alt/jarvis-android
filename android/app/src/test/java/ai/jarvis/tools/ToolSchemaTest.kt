@@ -62,7 +62,7 @@ class ToolSchemaTest {
     @Test
     fun outgoingActionsAreGatedAndRestrictedToolsAreMarked() {
         val byName = tools.associateBy { it.spec.name }
-        for (name in listOf("call_contact", "send_sms", "send_whatsapp", "create_event")) {
+        for (name in listOf("call_contact", "send_sms", "send_whatsapp", "send_message", "create_event")) {
             assertEquals(
                 "$name must ask first",
                 Confirmation.REQUIRED,
@@ -76,6 +76,16 @@ class ToolSchemaTest {
             "get_battery should not ask",
             byName.getValue("get_battery").spec.confirmation == Confirmation.REQUIRED,
         )
+    }
+
+    @Test
+    fun messagingToolAcceptsEverySupportedApp() {
+        val spec = tools.first { it.spec.name == "send_message" }.spec
+        assertEquals(listOf("app", "to", "message"), spec.required)
+        val apps = spec.parameters.getJSONObject("properties").getJSONObject("app").getString("description")
+        for (app in listOf("whatsapp", "messenger", "telegram", "signal", "instagram", "sms")) {
+            assertTrue("send_message should describe $app", apps.contains(app))
+        }
     }
 
     @Test

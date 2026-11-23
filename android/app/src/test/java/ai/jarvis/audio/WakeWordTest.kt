@@ -11,6 +11,14 @@ class WakeWordTest {
     }
 
     @Test
+    fun matchesTheReportedPhrase() {
+        // The phrase that was never firing on the device, as the recogniser
+        // delivers it and as the debug transcript injects it.
+        assertEquals("open settings", WakeWord.command("Jarvis open settings"))
+        assertEquals("open settings", WakeWord.command("jarvis, open settings."))
+    }
+
+    @Test
     fun toleratesGreetingAndPunctuation() {
         assertEquals("what's the weather", WakeWord.command("Hey Jarvis, what's the weather?"))
     }

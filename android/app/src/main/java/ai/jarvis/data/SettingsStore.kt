@@ -346,7 +346,8 @@ data class JarvisSettings(
     val model: String = DEFAULT_MODEL,
     val fallbackModel: String = DEFAULT_FALLBACK_MODEL,
     val voicePresetId: String = "jarvis",
-    val rate: Float = 0.95f,
+    /** 1.0 is the engine's normal talking speed. */
+    val rate: Float = 1.0f,
     val pitch: Float = 0.85f,
     val volume: Float = 0.9f,
     /** Prefer a male system voice; JARVIS is written as male. */
@@ -365,6 +366,9 @@ data class JarvisSettings(
         const val DEFAULT_BASE_URL = "https://freebuff.com/api/v1/paid"
         const val DEFAULT_MODEL = "deepseek-v4.1-flash"
         const val DEFAULT_FALLBACK_MODEL = "minimax-m3"
+
+        /** The platform TTS engine's own normal speaking rate. */
+        const val NORMAL_RATE = 1.0f
     }
 }
 
@@ -377,8 +381,9 @@ class SettingsStore(
 
     val current: JarvisSettings get() = _settings.value
 
-    private fun read() =
-        JarvisSettings(
+    private fun read(): JarvisSettings {
+        normaliseRateOnce()
+        return JarvisSettings(
             baseUrl =
                 prefs.getString("base_url", JarvisSettings.DEFAULT_BASE_URL)
                     ?: JarvisSettings.DEFAULT_BASE_URL,
@@ -387,7 +392,7 @@ class SettingsStore(
                 prefs.getString("fallback_model", JarvisSettings.DEFAULT_FALLBACK_MODEL)
                     ?: JarvisSettings.DEFAULT_FALLBACK_MODEL,
             voicePresetId = prefs.getString("voice_preset", "jarvis") ?: "jarvis",
-            rate = prefs.getFloat("rate", 0.95f),
+            rate = prefs.getFloat("rate", JarvisSettings.NORMAL_RATE),
             pitch = prefs.getFloat("pitch", 0.85f),
             volume = prefs.getFloat("volume", 0.9f),
             maleVoice = prefs.getBoolean("male_voice", true),
@@ -405,6 +410,23 @@ class SettingsStore(
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),
         )
+    }
+
+    /**
+     * Earlier builds shipped a sub-1.0 rate (0.94-0.95), which makes every
+     * reply sound drawled. A stored rate below normal speed is lifted to 1.0
+     * once, so an existing install actually speaks at normal speed; the slider
+     * still works normally afterwards.
+     */
+    private fun normaliseRateOnce() {
+        if (prefs.getBoolean("rate_normalised", false)) return
+        val stored = prefs.getFloat("rate", JarvisSettings.NORMAL_RATE)
+        prefs
+            .edit()
+            .putFloat("rate", stored.coerceAtLeast(JarvisSettings.NORMAL_RATE))
+            .putBoolean("rate_normalised", true)
+            .apply()
+    }
 
     private fun update(transform: (JarvisSettings) -> JarvisSettings) {
         val next = transform(_settings.value)

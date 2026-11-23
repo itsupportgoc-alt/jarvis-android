@@ -28,7 +28,8 @@ val VOICE_PRESETS =
             description = "British male, dry, unhurried. Falls back to the closest en-GB voice installed.",
             locale = "en-GB",
             pitch = 0.82f,
-            rate = 0.94f,
+            // Normal talking speed: anything below 1.0 reads as drawled.
+            rate = 1.0f,
             engine = VoiceEngineKind.PLATFORM,
         ),
         VoicePreset(
@@ -37,7 +38,7 @@ val VOICE_PRESETS =
             description = "Neutral and slower. Better for long answers and accessibility.",
             locale = "en-GB",
             pitch = 1.0f,
-            rate = 0.86f,
+            rate = 0.95f,
             engine = VoiceEngineKind.PLATFORM,
         ),
         VoicePreset(
@@ -46,7 +47,7 @@ val VOICE_PRESETS =
             description = "Lower, softer delivery with a little more air.",
             locale = "en-US",
             pitch = 0.95f,
-            rate = 0.92f,
+            rate = 1.0f,
             engine = VoiceEngineKind.PLATFORM,
         ),
         VoicePreset(
@@ -55,7 +56,7 @@ val VOICE_PRESETS =
             description = "Piper multi-speaker / user ONNX voice. Requires models/download_models.sh.",
             locale = "en-GB",
             pitch = 0.85f,
-            rate = 0.95f,
+            rate = 1.0f,
             engine = VoiceEngineKind.PIPER,
         ),
     )

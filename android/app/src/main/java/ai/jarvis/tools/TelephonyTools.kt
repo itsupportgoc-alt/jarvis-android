@@ -300,6 +300,115 @@ class SendWhatsAppTool :
     }
 }
 
+/**
+ * A messaging app JARVIS can hand a message to.
+ *
+ * `deepLink` builds a URI that carries both recipient and text, which only some
+ * apps support by phone number; the rest are opened with a share intent and the
+ * user picks the chat. Package names also appear in the manifest `<queries>`,
+ * otherwise API 30+ hides these apps from the resolver.
+ */
+private class MessagingTarget(
+    val id: String,
+    val label: String,
+    val packageName: String,
+    val deepLink: ((number: String, text: String) -> String)?,
+)
+
+private val MESSAGING_TARGETS =
+    listOf(
+        MessagingTarget("whatsapp", "WhatsApp", "com.whatsapp") { number, text ->
+            "https://wa.me/$number?text=${Uri.encode(text)}"
+        },
+        MessagingTarget("sms", "Messages", "com.android.mms") { number, text ->
+            "smsto:$number?body=${Uri.encode(text)}"
+        },
+        MessagingTarget("messenger", "Messenger", "com.facebook.orca", null),
+        MessagingTarget("telegram", "Telegram", "org.telegram.messenger", null),
+        MessagingTarget("signal", "Signal", "org.thoughtcrime.securesms", null),
+        MessagingTarget("instagram", "Instagram", "com.instagram.android", null),
+    )
+
+class SendAppMessageTool :
+    Tool(
+        ToolSpec(
+            name = "send_message",
+            description =
+                "Open a messaging app with a message ready to send. Apps: whatsapp, messenger, " +
+                    "telegram, signal, instagram, sms. The user still presses send.",
+            parameters =
+                schema(
+                    "app" to stringProp("Messaging app: whatsapp, messenger, telegram, signal, instagram or sms"),
+                    "to" to stringProp("Contact name or phone number"),
+                    "message" to stringProp("Message text"),
+                ),
+            required = listOf("app", "to", "message"),
+            confirmation = Confirmation.REQUIRED,
+            permissions = listOf(Manifest.permission.READ_CONTACTS),
+        ),
+    ) {
+    override fun execute(
+        context: Context,
+        args: JSONObject,
+    ): ToolResult {
+        val requested = args.optString("app").trim().ifEmpty { "whatsapp" }
+        val message = args.optString("message").trim()
+        if (message.isEmpty()) return ToolResult.fail("I need a message to send.")
+        val to = args.optString("to").trim()
+        if (to.isEmpty()) return ToolResult.fail("I need a recipient.")
+        val target =
+            MESSAGING_TARGETS.firstOrNull {
+                it.id.equals(requested, ignoreCase = true) || it.label.equals(requested, ignoreCase = true)
+            } ?: return ToolResult.fail(
+                "I can message with ${MESSAGING_TARGETS.joinToString(", ") { it.label }}.",
+            )
+        val installed =
+            runCatching { context.packageManager.getLaunchIntentForPackage(target.packageName) != null }
+                .getOrDefault(false)
+
+        // Apps that accept recipient + text in a URI get the message pre-filled.
+        val deepLink = target.deepLink
+        if (deepLink != null) {
+            val number =
+                resolveNumber(context, to)
+                    ?: return ToolResult.fail("I could not find \"$to\".")
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(number, message)))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            return ToolResult.ok(
+                "${target.label} is open with the message to $to ready.",
+                JSONObject().put("app", target.id).put("to", number),
+            )
+        }
+
+        // Everything else: share the text into that app, or at worst open it.
+        val share =
+            Intent(Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT, message)
+                .setPackage(target.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val shared = installed && runCatching { context.startActivity(share) }.isSuccess
+        if (!shared) {
+            val launch = context.packageManager.getLaunchIntentForPackage(target.packageName)
+            if (launch == null) {
+                return ToolResult.fail(
+                    "${target.label} is not installed. WhatsApp, Messages and SMS always work.",
+                )
+            }
+            context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return ToolResult.ok(
+                "${target.label} is open. Pick $to and paste the message; it could not be filled in automatically.",
+            )
+        }
+        return ToolResult.ok(
+            "${target.label} is open with the message ready for $to; choose the chat if it asks.",
+            JSONObject().put("app", target.id),
+        )
+    }
+}
+
 class SearchContactsTool :
     Tool(
         ToolSpec(

@@ -1,9 +1,11 @@
 package ai.jarvis.service
 
+import ai.jarvis.BuildConfig
 import ai.jarvis.JarvisApp
 import ai.jarvis.MainActivity
 import ai.jarvis.R
 import ai.jarvis.audio.WakeListener
+import ai.jarvis.audio.dispatchWakeTranscript
 import ai.jarvis.core.Phase
 import ai.jarvis.permissions.Permissions
 import android.app.Notification
@@ -23,6 +25,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -41,6 +46,7 @@ class JarvisService : Service() {
     private var wake: WakeListener? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var phaseWatcher: Job? = null
+    private var wakeSyncJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,19 +62,31 @@ class JarvisService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
         startForeground(
             NOTIFICATION_ID,
             buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         controller().onServiceRunning(true)
-        syncWakeListener()
+        // Only claim the microphone when no session already holds it; a restart
+        // of the service during a reply must not fight the recogniser for it.
+        if (controller().ui.value.phase == Phase.IDLE) syncWakeListener()
         watchPhase()
+        // Debug-only: replay a fixed transcript through the same matcher the
+        // recogniser feeds, so the wake path can be verified on a device
+        // without speaking into the microphone.
+        if (BuildConfig.DEBUG && intent?.action == ACTION_DEBUG_TRANSCRIPT) {
+            val text = intent.getStringExtra(EXTRA_TRANSCRIPT).orEmpty()
+            Log.i(TAG, "debug transcript injected: \"$text\"")
+            dispatchWakeTranscript(text, ::onWake)
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
         phaseWatcher?.cancel()
+        wakeSyncJob?.cancel()
         scope.cancel()
         wake?.stop()
         wake = null
@@ -85,13 +103,36 @@ class JarvisService : Service() {
         if (phaseWatcher != null) return
         phaseWatcher =
             scope.launch {
-                controller().ui.collect { state ->
-                    if (state.phase == Phase.IDLE) syncWakeListener() else pauseWake()
-                }
+                controller().ui
+                    .map { it.phase }
+                    .distinctUntilChanged()
+                    .collect { phase ->
+                        if (phase == Phase.IDLE) scheduleWakeSync() else pauseWake()
+                    }
+            }
+    }
+
+    /**
+     * Re-arms the wake listener once the session has actually settled on IDLE.
+     *
+     * Acting on every emission destroyed and recreated the recogniser three
+     * times inside 200 ms after a wake (IDLE, THINKING, IDLE again before the
+     * engine reported LISTENING), which produced ERROR_CLIENT and spent the
+     * microphone reconnecting instead of listening.
+     */
+    private fun scheduleWakeSync() {
+        wakeSyncJob?.cancel()
+        wakeSyncJob =
+            scope.launch {
+                delay(WAKE_REARM_DELAY_MS)
+                if (controller().ui.value.phase != Phase.IDLE) return@launch
+                syncWakeListener()
             }
     }
 
     private fun pauseWake() {
+        wakeSyncJob?.cancel()
+        wakeSyncJob = null
         wake?.stop()
         wake = null
     }
@@ -121,7 +162,7 @@ class JarvisService : Service() {
 
     /** Runs the instruction the user said after the wake phrase. */
     private fun onWake(command: String) {
-        Log.i(TAG, "wake matched, command length=${command.length}")
+        Log.i(TAG, "wake matched, command=\"$command\"")
         // Release the wake recogniser before a session needs the microphone;
         // `watchPhase` brings it back when JARVIS is idle.
         pauseWake()
@@ -135,8 +176,10 @@ class JarvisService : Service() {
             )
         }.onFailure { Log.w(TAG, "could not bring the activity forward", it) }
         if (command.isBlank()) {
+            Log.i(TAG, "no command after the name; opening a listening session")
             controller.startListening()
         } else {
+            Log.i(TAG, "handing \"$command\" to the controller")
             controller.submitText(command)
         }
     }
@@ -191,6 +234,7 @@ class JarvisService : Service() {
 
     companion object {
         private const val TAG = "JarvisService"
+        private const val WAKE_REARM_DELAY_MS = 600L
         private const val CHANNEL_ID = "jarvis_listening"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "ai.jarvis.STOP"
@@ -204,6 +248,22 @@ class JarvisService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, JarvisService::class.java))
+        }
+
+        /** Debug-only transcript injection, used by [MainActivity] diagnostics. */
+        const val ACTION_DEBUG_TRANSCRIPT = "ai.jarvis.DEBUG_WAKE_TRANSCRIPT"
+        const val EXTRA_TRANSCRIPT = "transcript"
+
+        fun startDebugTranscript(
+            context: Context,
+            transcript: String,
+        ) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, JarvisService::class.java)
+                    .setAction(ACTION_DEBUG_TRANSCRIPT)
+                    .putExtra(EXTRA_TRANSCRIPT, transcript),
+            )
         }
     }
 }

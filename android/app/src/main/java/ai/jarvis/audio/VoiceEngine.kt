@@ -62,7 +62,7 @@ class VoiceEngine(
     private var outstanding = 0
     private var counter = 0
     private var preset: VoicePreset = presetFor("jarvis")
-    private var rate = 0.95f
+    private var rate = 1.0f
     private var pitch = 0.85f
     private var volume = 0.9f
     private var maleVoice = true
@@ -101,6 +101,9 @@ class VoiceEngine(
         this.pitch = pitch.coerceIn(0.5f, 2.0f)
         this.volume = volume.coerceIn(0f, 1f)
         this.maleVoice = maleVoice
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("JarvisVoice", "rate=${this.rate} pitch=${this.pitch} volume=${this.volume}")
+        }
         if (ready) configureEngine()
     }
 

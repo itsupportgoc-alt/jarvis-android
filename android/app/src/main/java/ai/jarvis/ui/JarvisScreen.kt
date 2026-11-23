@@ -330,7 +330,9 @@ fun JarvisScreen(controller: JarvisController) {
         }
 
         ui.pendingTool?.let { pending ->
-            val irreversible = pending.name in setOf("send_sms", "call_contact", "send_whatsapp", "control_device")
+            val irreversible =
+                pending.name in
+                setOf("send_sms", "call_contact", "send_whatsapp", "send_message", "control_device")
             AlertDialog(
                 onDismissRequest = { controller.denyPendingTool() },
                 containerColor = ai.jarvis.ui.theme.JarvisSurface,
