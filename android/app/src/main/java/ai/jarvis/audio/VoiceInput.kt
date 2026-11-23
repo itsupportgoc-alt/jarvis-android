@@ -71,7 +71,9 @@ class VoiceInput(
                 )
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                // Not forcing EXTRA_PREFER_OFFLINE: on this device the offline
+                // model reports speech but returns no transcript, so preferring
+                // it made the microphone look deaf. The platform chooses.
                 // The device language, not a hardcoded en-GB: an offline model
                 // is only usable for the locale actually installed, and with
                 // EXTRA_PREFER_OFFLINE a missing en-GB model fails the request.

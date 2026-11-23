@@ -1,5 +1,6 @@
 package ai.jarvis.audio
 
+import ai.jarvis.BuildConfig
 import ai.jarvis.data.VoicePreset
 import ai.jarvis.data.presetFor
 import android.content.Context
@@ -64,6 +65,10 @@ class VoiceEngine(
     private var rate = 0.95f
     private var pitch = 0.85f
     private var volume = 0.9f
+    private var maleVoice = true
+
+    /** Whether the engine found a real male voice, rather than only deeper pitch. */
+    private var maleApplied = false
     private var currentWord = ""
     private var wordStartedAt = 0L
     private var ticker: Job? = null
@@ -89,11 +94,13 @@ class VoiceEngine(
         rate: Float,
         pitch: Float,
         volume: Float,
+        maleVoice: Boolean,
     ) {
         this.preset = preset
         this.rate = rate.coerceIn(0.5f, 2.0f)
         this.pitch = pitch.coerceIn(0.5f, 2.0f)
         this.volume = volume.coerceIn(0f, 1f)
+        this.maleVoice = maleVoice
         if (ready) configureEngine()
     }
 
@@ -126,7 +133,10 @@ class VoiceEngine(
         val engine = tts ?: return
         requestFocus()
         engine.setSpeechRate(rate)
-        engine.setPitch((pitch * if (question) QUESTION_PITCH_BIAS else 1f).coerceIn(0.5f, 2f))
+        // A real male voice is used when installed; otherwise the preset's pitch
+        // is lowered further so JARVIS still sounds male.
+        val depth = if (maleVoice && !maleApplied) MALE_PITCH_FALLBACK else 1f
+        engine.setPitch((pitch * depth * if (question) QUESTION_PITCH_BIAS else 1f).coerceIn(0.5f, 2f))
         val id = "u${++counter}"
         texts[id] = text
         outstanding += 1
@@ -170,16 +180,49 @@ class VoiceEngine(
         }
     }
 
+    /**
+     * Chooses the active voice.
+     *
+     * Android's platform TTS exposes no gender flag, so the male voices are
+     * listed by name; each entry here was synthesised on the target device and
+     * its median pitch measured (112-150 Hz, against 189-233 Hz for the rest).
+     * Locals are preferred over network voices so speech still works offline.
+     */
     private fun configureEngine() {
         val engine = tts ?: return
         val locale = Locale.forLanguageTag(preset.locale)
         engine.setLanguage(locale)
-        val candidates =
-            engine.voices
-                ?.filter { it.locale.language == locale.language }
-                ?.sortedBy { if (it.locale.country == locale.country) 0 else 1 }
-        candidates?.firstOrNull { !it.isNetworkConnectionRequired }?.let { engine.voice = it }
+        val voices = engine.voices ?: return
+        val sameLanguage = voices.filter { it.locale.language == locale.language }
+        val male =
+            if (maleVoice) {
+                // Walk the preference list (deepest measured voice first) rather
+                // than the engine's order, and prefer an installed local voice.
+                MALE_VOICES
+                    .mapNotNull { target ->
+                        sameLanguage
+                            .filter { baseName(it.name) == target }
+                            .minByOrNull { it.isNetworkConnectionRequired }
+                    }.firstOrNull()
+            } else {
+                null
+            }
+        val fallback =
+            sameLanguage
+                .sortedBy { if (it.locale.country == locale.country) 0 else 1 }
+                .firstOrNull { !it.isNetworkConnectionRequired }
+        val chosen = male ?: fallback
+        maleApplied = male != null
+        chosen?.let { engine.voice = it }
+        if (BuildConfig.DEBUG) android.util.Log.i("JarvisVoice", "voice=${chosen?.name} male=$maleApplied")
     }
+
+    private fun baseName(name: String): String =
+        name
+            .substringBefore('#')
+            .removeSuffix("-local")
+            .removeSuffix("-network")
+            .lowercase(Locale.ROOT)
 
     private val progress =
         object : UtteranceProgressListener() {
@@ -303,6 +346,16 @@ class VoiceEngine(
 
     private companion object {
         const val QUESTION_PITCH_BIAS = 1.06f
+        const val MALE_PITCH_FALLBACK = 0.85f
+
+        /** Measured male system voices (median F0 112-150 Hz on a Redmi 10). */
+        val MALE_VOICES =
+            listOf(
+                "en-gb-x-gbd",
+                "en-gb-x-rjs",
+                "en-us-x-iol",
+                "en-gb-x-gbb",
+            )
         const val QUESTION_MARK = "\u0001"
     }
 }

@@ -349,6 +349,8 @@ data class JarvisSettings(
     val rate: Float = 0.95f,
     val pitch: Float = 0.85f,
     val volume: Float = 0.9f,
+    /** Prefer a male system voice; JARVIS is written as male. */
+    val maleVoice: Boolean = true,
     val animationMode: AnimationMode = AnimationMode.ORB,
     val voiceInput: VoiceInputMode = VoiceInputMode.SYSTEM,
     val trustedTools: Set<String> = emptySet(),
@@ -388,6 +390,7 @@ class SettingsStore(
             rate = prefs.getFloat("rate", 0.95f),
             pitch = prefs.getFloat("pitch", 0.85f),
             volume = prefs.getFloat("volume", 0.9f),
+            maleVoice = prefs.getBoolean("male_voice", true),
             animationMode =
                 runCatching {
                     AnimationMode.valueOf(prefs.getString("animation_mode", "ORB") ?: "ORB")
@@ -414,6 +417,7 @@ class SettingsStore(
             .putFloat("rate", next.rate)
             .putFloat("pitch", next.pitch)
             .putFloat("volume", next.volume)
+            .putBoolean("male_voice", next.maleVoice)
             .putString("animation_mode", next.animationMode.name)
             .putString("voice_input", next.voiceInput.name)
             .putStringSet("trusted_tools", next.trustedTools)
@@ -439,6 +443,8 @@ class SettingsStore(
         pitch: Float,
         volume: Float,
     ) = update { it.copy(voicePresetId = presetId, rate = rate, pitch = pitch, volume = volume) }
+
+    fun setMaleVoice(enabled: Boolean) = update { it.copy(maleVoice = enabled) }
 
     fun setAnimationMode(mode: AnimationMode) = update { it.copy(animationMode = mode) }
 

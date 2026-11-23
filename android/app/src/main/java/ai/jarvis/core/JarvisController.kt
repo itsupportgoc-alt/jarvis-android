@@ -990,7 +990,13 @@ class JarvisController(
             rate = settings.rate,
             pitch = settings.pitch,
             volume = settings.volume,
+            maleVoice = settings.maleVoice,
         )
+    }
+
+    fun setMaleVoice(enabled: Boolean) {
+        settingsStore.setMaleVoice(enabled)
+        applyVoiceSettings(settingsStore.current)
     }
 
     private companion object {

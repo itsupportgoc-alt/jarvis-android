@@ -361,6 +361,25 @@ fun SettingsSheet(
                 LabelledSlider("Rate", rate, 0.6f, 1.6f) { rate = it }
                 LabelledSlider("Pitch", pitch, 0.5f, 1.5f) { pitch = it }
                 LabelledSlider("Volume", volume, 0f, 1f) { volume = it }
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Male voice", style = MonoSmall, color = JarvisCyan)
+                        Text(
+                            "Picks the deepest male voice installed for this language (a lower pitch if there is none).",
+                            style = MonoSmall,
+                        )
+                    }
+                    Switch(
+                        checked = settings.maleVoice,
+                        onCheckedChange = { controller.setMaleVoice(it) },
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         controller.saveVoice(settings.voicePresetId, rate, pitch, volume)
@@ -394,7 +413,7 @@ fun SettingsSheet(
                 }
                 Text(
                     if (settings.voiceInput == VoiceInputMode.SYSTEM) {
-                        "Android recogniser with EXTRA_PREFER_OFFLINE. Works out of the box; some devices still require a network."
+                        "Android's own recogniser, on-device where the phone has a working model and on the network otherwise."
                     } else {
                         "Rust VAD + Whisper. Requires a build with --features whisper and ggml-base.en.bin; otherwise voice reports a clear configuration error."
                     },

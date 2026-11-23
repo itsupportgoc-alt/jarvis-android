@@ -121,6 +121,7 @@ class JarvisService : Service() {
 
     /** Runs the instruction the user said after the wake phrase. */
     private fun onWake(command: String) {
+        Log.i(TAG, "wake matched, command length=${command.length}")
         // Release the wake recogniser before a session needs the microphone;
         // `watchPhase` brings it back when JARVIS is idle.
         pauseWake()
