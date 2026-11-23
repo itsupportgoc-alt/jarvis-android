@@ -7,7 +7,7 @@ remote reasoning, device tools, and an arc-reactor UI that reacts to real audio.
 
 ## Download
 
-**[Download JARVIS v0.1.2 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.2/jarvis-0.1.2-debug.apk)**
+**[Download JARVIS v0.1.3 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.3/jarvis-0.1.3-debug.apk)**
 
 Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
 (API 29). The APK is debug-signed for testing: enable "install unknown apps"
