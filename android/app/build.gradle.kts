@@ -16,8 +16,8 @@ android {
         applicationId = "ai.jarvis"
         minSdk = 29
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.1.7"
+        versionCode = 9
+        versionName = "0.1.8"
 
         ndk {
             // 64-bit is the primary target; armv7 for older devices; x86_64 for

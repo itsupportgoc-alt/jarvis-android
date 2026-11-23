@@ -51,7 +51,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,10 +107,6 @@ fun JarvisScreen(controller: JarvisController) {
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
         ) { }
-
-    LaunchedEffect(ui.needsSetup) {
-        if (ui.needsSetup) showSettings = true
-    }
 
     val accent =
         when (ui.phase) {
