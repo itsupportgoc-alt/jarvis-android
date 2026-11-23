@@ -4,6 +4,7 @@ import ai.jarvis.core.JarvisController
 import ai.jarvis.core.JarvisUiState
 import ai.jarvis.data.AnimationMode
 import ai.jarvis.data.JarvisSettings
+import ai.jarvis.data.PROVIDER_PRESETS
 import ai.jarvis.data.VOICE_PRESETS
 import ai.jarvis.data.VoiceInputMode
 import ai.jarvis.data.presetFor
@@ -108,6 +109,23 @@ fun SettingsSheet(
             // ---------------- Engine ----------------
             item { SectionTitle("REASONING ENGINE") }
             item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PROVIDER_PRESETS.forEach { preset ->
+                        FilterChip(
+                            selected = settings.baseUrl == preset.baseUrl && settings.model == preset.model,
+                            onClick = {
+                                baseUrl = preset.baseUrl
+                                model = preset.model
+                                fallback = preset.fallback
+                                controller.saveEndpoint(preset.baseUrl, preset.model, preset.fallback)
+                            },
+                            label = { Text(preset.label, style = MonoSmall) },
+                            colors = chipColors(),
+                        )
+                    }
+                }
+            }
+            item {
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
@@ -115,7 +133,7 @@ fun SettingsSheet(
                     singleLine = true,
                     textStyle = MonoBody,
                     visualTransformation = PasswordVisualTransformation(),
-                    label = { Text("Qwen API key", style = MonoSmall) },
+                    label = { Text("API key", style = MonoSmall) },
                     placeholder = {
                         Text(
                             if (settings.hasApiKey) {
@@ -128,7 +146,7 @@ fun SettingsSheet(
                     },
                     supportingText = {
                         Text(
-                            "Stored with a non-exportable Keystore key; never written to Rust or prefs in plaintext.",
+                            "Paste the key from your provider's console. Stored with a non-exportable Keystore key, never in plain preferences.",
                             style = MonoSmall,
                         )
                     },
@@ -191,7 +209,7 @@ fun SettingsSheet(
                     }) { Text("APPLY & RESTART ENGINE", style = MonoSmall, color = JarvisCyan) }
                 }
                 Text(
-                    "Default qwen3-30b-a3b falls back to qwen2.5-14b-instruct where latency matters. Model IDs must exist on your endpoint.",
+                    "Presets fill the endpoint: BlackPig relay (api.vv666.ai, OpenAI-compatible) or DashScope. Model IDs must exist for your key.",
                     style = MonoSmall,
                 )
             }

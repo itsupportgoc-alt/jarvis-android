@@ -15,10 +15,40 @@ enum class VoiceInputMode {
     ON_DEVICE,
 }
 
+/**
+ * A known OpenAI-compatible host. A preset only fills the endpoint fields; the
+ * API key is always entered by the user and kept in the Android Keystore.
+ */
+data class ProviderPreset(
+    val id: String,
+    val label: String,
+    val baseUrl: String,
+    val model: String,
+    val fallback: String,
+)
+
+val PROVIDER_PRESETS =
+    listOf(
+        ProviderPreset(
+            id = "blackpig",
+            label = "BlackPig relay",
+            baseUrl = "https://api.vv666.ai/v1",
+            model = "gpt-6.1-sol",
+            fallback = "gpt-5.6-sol",
+        ),
+        ProviderPreset(
+            id = "dashscope",
+            label = "DashScope (Qwen)",
+            baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            model = "qwen3-30b-a3b",
+            fallback = "qwen2.5-14b-instruct",
+        ),
+    )
+
 data class JarvisSettings(
     val baseUrl: String = DEFAULT_BASE_URL,
-    val model: String = "qwen3-30b-a3b",
-    val fallbackModel: String = "qwen2.5-14b-instruct",
+    val model: String = DEFAULT_MODEL,
+    val fallbackModel: String = DEFAULT_FALLBACK_MODEL,
     val voicePresetId: String = "jarvis",
     val rate: Float = 0.95f,
     val pitch: Float = 0.85f,
@@ -31,7 +61,9 @@ data class JarvisSettings(
     val hasApiKey: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        const val DEFAULT_BASE_URL = "https://api.vv666.ai/v1"
+        const val DEFAULT_MODEL = "gpt-6.1-sol"
+        const val DEFAULT_FALLBACK_MODEL = "gpt-5.6-sol"
     }
 }
 
@@ -49,10 +81,10 @@ class SettingsStore(
             baseUrl =
                 prefs.getString("base_url", JarvisSettings.DEFAULT_BASE_URL)
                     ?: JarvisSettings.DEFAULT_BASE_URL,
-            model = prefs.getString("model", "qwen3-30b-a3b") ?: "qwen3-30b-a3b",
+            model = prefs.getString("model", JarvisSettings.DEFAULT_MODEL) ?: JarvisSettings.DEFAULT_MODEL,
             fallbackModel =
-                prefs.getString("fallback_model", "qwen2.5-14b-instruct")
-                    ?: "qwen2.5-14b-instruct",
+                prefs.getString("fallback_model", JarvisSettings.DEFAULT_FALLBACK_MODEL)
+                    ?: JarvisSettings.DEFAULT_FALLBACK_MODEL,
             voicePresetId = prefs.getString("voice_preset", "jarvis") ?: "jarvis",
             rate = prefs.getFloat("rate", 0.95f),
             pitch = prefs.getFloat("pitch", 0.85f),

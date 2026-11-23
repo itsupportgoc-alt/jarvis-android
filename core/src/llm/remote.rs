@@ -1,8 +1,9 @@
-//! Qwen over its OpenAI-compatible streaming endpoint.
+//! Remote reasoning over an OpenAI-compatible streaming endpoint.
 //!
 //! Endpoint shape: `POST {base_url}/chat/completions` with `stream: true`.
-//! Verified against the DashScope compatible-mode API; any OpenAI-compatible
-//! host works by changing `base_url`.
+//! Verified against the DashScope compatible-mode API and the BlackPig relay
+//! (`https://api.vv666.ai/v1`); any OpenAI-compatible host works by changing
+//! `base_url` and the model IDs.
 //!
 //! Latency rules:
 //! * One long-lived `reqwest::Client` (connection reuse, TLS session reuse).
@@ -55,10 +56,10 @@ fn default_max_tokens() -> u32 {
 impl Default for QwenRemoteConfig {
     fn default() -> Self {
         Self {
-            base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".into(),
+            base_url: "https://api.vv666.ai/v1".into(),
             api_key: String::new(),
-            model: "qwen3-30b-a3b".into(),
-            fallback_model: "qwen2.5-14b-instruct".into(),
+            model: "gpt-6.1-sol".into(),
+            fallback_model: "gpt-5.6-sol".into(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
             persona_extra: String::new(),
@@ -76,12 +77,12 @@ impl QwenRemote {
     pub fn new(cfg: QwenRemoteConfig, tools: Vec<ToolSchema>) -> Result<Self> {
         if cfg.api_key.trim().is_empty() {
             return Err(JarvisError::NotConfigured(
-                "Qwen API key is empty; add it in Settings".into(),
+                "API key is empty; add it in Settings".into(),
             ));
         }
         if cfg.base_url.trim().is_empty() {
             return Err(JarvisError::NotConfigured(
-                "Qwen base URL is empty".into(),
+                "Base URL is empty".into(),
             ));
         }
         let http = reqwest::Client::builder()
@@ -139,9 +140,9 @@ impl QwenRemote {
             _ = cancel.cancelled() => return Err(JarvisError::Cancelled),
             response = request.send() => response.map_err(|e| {
                 if e.is_timeout() {
-                    JarvisError::Network("Qwen request timed out".into())
+                    JarvisError::Network("Reasoning request timed out".into())
                 } else if e.is_connect() {
-                    JarvisError::Network(format!("cannot reach Qwen: {e}"))
+                    JarvisError::Network(format!("cannot reach the reasoning endpoint: {e}"))
                 } else {
                     JarvisError::Network(e.to_string())
                 }
@@ -155,7 +156,7 @@ impl QwenRemote {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
         let detail = extract_error(&text).unwrap_or_else(|| text.chars().take(300).collect());
-        Err(JarvisError::Network(format!("Qwen HTTP {status}: {detail}")))
+        Err(JarvisError::Network(format!("HTTP {status}: {detail}")))
     }
 }
 
@@ -329,7 +330,7 @@ mod tests {
     #[test]
     fn unknown_model_is_detected() {
         assert!(looks_like_unknown_model(&JarvisError::Network(
-            "Qwen HTTP 404 Not Found: model_not_found".into()
+            "HTTP 404 Not Found: model_not_found".into()
         )));
         assert!(!looks_like_unknown_model(&JarvisError::Network(
             "Qwen HTTP 500 Internal Server Error".into()

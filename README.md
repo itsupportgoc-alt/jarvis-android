@@ -1,13 +1,13 @@
 # JARVIS
 
-An offline-first voice assistant for Android: Rust engine, Qwen reasoning,
-device tools, and an arc-reactor UI that reacts to real audio.
+An offline-first voice assistant for Android: Rust engine, OpenAI-compatible
+remote reasoning, device tools, and an arc-reactor UI that reacts to real audio.
 
 ![JARVIS interface — design mockup](docs/preview.jpg)
 
 ## Download
 
-**[Download JARVIS v0.1.0 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.0/jarvis-0.1.0-debug.apk)**
+**[Download JARVIS v0.1.1 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.1.1/jarvis-0.1.1-debug.apk)**
 
 Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
 (API 29). The APK is debug-signed for testing: enable "install unknown apps"
@@ -32,7 +32,7 @@ is built, and what was verified on the authoring machine:
 | Piece | State | Verified here |
 |---|---|---|
 | Rust control plane (session machine, sentence chunker, SSE parser, tool-call assembly, mood tags, VAD, ring buffer, encrypted store, viseme DSP) | Implemented | `cargo test` (77 tests), `cargo clippy -D warnings`, `cargo bench`; cross-compiled to all 3 ABIs |
-| Qwen remote (OpenAI-compatible SSE, model fallback, cancellation) | Implemented | Parser + request tests; no live API call |
+| Remote reasoning (OpenAI-compatible SSE, model fallback, cancellation) | Implemented | Parser + request tests; no live API call |
 | JNI boundary (`catch_unwind`, typed codes, lock-free PCM push) | Implemented | Compiles on host; only runs in a JVM |
 | Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; 4 JVM tests |
 | Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 32 MB debug APK with arm64/armv7/x86_64 `.so` |
@@ -44,7 +44,7 @@ is built, and what was verified on the authoring machine:
 | Device latency budget (wake/ASR/TTS/end-to-end) | Instrumented, not measured on hardware | — |
 
 If you need a working "speak → answer → speak" demo today, it works through the
-system recogniser and system TTS with a Qwen key. The Rust Whisper build is the
+system recogniser and system TTS with a relay or DashScope key. The Rust Whisper build is the
 route to a guaranteed-offline ASR; see below.
 
 ## What it feels like
@@ -110,22 +110,29 @@ Install:
 android/.sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Configure Qwen
+## Configure the reasoning endpoint
 
-Open **SETTINGS → REASONING ENGINE**. Paste a key from your Qwen/DashScope
-account (or any OpenAI-compatible host), and optionally change:
+Open **SETTINGS → REASONING ENGINE** and paste a key from your provider. The
+default endpoint is the BlackPig relay: create a token under **API Keys** at
+<https://blackpig.vip/api/console> and paste it into the app. Built-in presets
+(tap one to fill the fields):
 
-```
-base URL  https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-model     qwen3-30b-a3b
-fallback  qwen2.5-14b-instruct
-```
+| Preset | Base URL | Model | Fallback |
+|---|---|---|---|
+| BlackPig relay | `https://api.vv666.ai/v1` | `gpt-6.1-sol` | `gpt-5.6-sol` |
+| DashScope (Qwen) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen3-30b-a3b` | `qwen2.5-14b-instruct` |
 
-The key is encrypted with a non-exportable AES-256-GCM key in the Android
-Keystore. It is never written to plain preferences, logs, the Rust layer, or the
-encrypted transcript store. `Apply & restart engine` rebuilds the native engine
-with the new endpoint. If the primary model is unknown to the account, the Rust
-backend retries once with the fallback **before** emitting any token.
+Both speak OpenAI Chat Completions — `POST {base_url}/chat/completions` with
+`Authorization: Bearer <key>` — so any other compatible host works too: type its
+base URL and two model IDs. Model IDs must exist for your key; check the
+provider's console or `GET {base_url}/models`.
+
+The key is entered on the phone and encrypted with a non-exportable AES-256-GCM
+key in the Android Keystore. It is never written to plain preferences, logs or
+the transcript store, and no key is baked into the APK or this repository; only
+the configured host receives it. `Apply & restart engine` rebuilds the native
+engine with the new endpoint. If the primary model is unknown to the account,
+the Rust backend retries once with the fallback **before** emitting any token.
 
 ## Permission matrix
 
