@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.Exec
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -15,8 +16,8 @@ android {
         applicationId = "ai.jarvis"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.1.4"
 
         ndk {
             // 64-bit is the primary target; armv7 for older devices; x86_64 for
@@ -24,6 +25,12 @@ android {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
         buildConfigField("String", "JARVIS_CORE_VERSION", "\"0.1.0\"")
+        // Optional build-time Freebuff key so a personal build starts already
+        // connected. Read from -PfreebuffApiKey, FREEBUFF_API_KEY, or
+        // android/local.properties (gitignored). Never commit a real key: it
+        // ends up inside the APK and anyone who unpacks it can spend it.
+        val freebuffKey = freebuffApiKey()
+        buildConfigField("String", "FREEBUFF_API_KEY", "\"${freebuffKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildFeatures {
@@ -78,6 +85,27 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+}
+
+/**
+ * Resolves an optional Freebuff API key at build time.
+ *
+ * Precedence: `-PfreebuffApiKey=...`, the `FREEBUFF_API_KEY` environment
+ * variable, then `freebuff.api.key` in `android/local.properties`. The
+ * repository ships none, and `local.properties` is gitignored.
+ */
+fun freebuffApiKey(): String {
+    (project.findProperty("freebuffApiKey") as? String)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    System.getenv("FREEBUFF_API_KEY")?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    val local = rootProject.projectDir.resolve("local.properties")
+    if (!local.exists()) return ""
+    return runCatching {
+        Properties()
+            .apply { local.inputStream().use { stream -> load(stream) } }
+            .getProperty("freebuff.api.key")
+            ?.trim()
+            .orEmpty()
+    }.getOrDefault("")
 }
 
 /**

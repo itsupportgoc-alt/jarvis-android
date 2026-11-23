@@ -1,5 +1,6 @@
 package ai.jarvis.core
 
+import ai.jarvis.BuildConfig
 import ai.jarvis.audio.AudioCapture
 import ai.jarvis.audio.VoiceEngine
 import ai.jarvis.audio.VoiceInput
@@ -204,8 +205,29 @@ class JarvisController(
         )
 
     init {
+        seedBundledKey()
         applyVoiceSettings(settingsStore.current)
         ensureEngine()
+    }
+
+    /**
+     * A build made with `-PfreebuffApiKey`, `FREEBUFF_API_KEY` or
+     * `freebuff.api.key` in `android/local.properties` arrives already
+     * connected: the key is sealed into the Keystore on first launch and is
+     * not read from `BuildConfig` again. Builds without one start on the same
+     * Freebuff preset and simply ask for a key.
+     */
+    private fun seedBundledKey() {
+        val bundled = BuildConfig.FREEBUFF_API_KEY
+        if (bundled.isBlank() || secure.hasApiKey(FREEBUFF_PROVIDER_ID)) return
+        val stored = secure.saveApiKey(FREEBUFF_PROVIDER_ID, ProviderProbe.sanitizeKey(bundled))
+        if (stored.isFailure) {
+            Log.w(TAG, "bundled Freebuff key could not be stored", stored.exceptionOrNull())
+            return
+        }
+        if (providerIdFor(settingsStore.current.baseUrl) == FREEBUFF_PROVIDER_ID) {
+            settingsStore.setApiKeyPresent(true)
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -859,5 +881,6 @@ class JarvisController(
     private companion object {
         const val TAG = "JarvisController"
         const val UNDO_WINDOW_MS = 5_000L
+        const val FREEBUFF_PROVIDER_ID = "freebuff"
     }
 }

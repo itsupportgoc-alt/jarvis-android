@@ -183,7 +183,7 @@ fun JarvisScreen(controller: JarvisController) {
                         )
                         if (ui.needsSetup) {
                             Text(
-                                text = "Awaiting credentials. Add an API key in Settings.",
+                                text = "Awaiting credentials. Freebuff API is preset — add its key in Settings.",
                                 style = MonoSmall,
                                 color = JarvisMuted,
                                 modifier = Modifier.padding(top = 8.dp),

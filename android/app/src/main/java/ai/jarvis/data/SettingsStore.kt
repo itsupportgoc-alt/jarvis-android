@@ -156,6 +156,16 @@ val PROVIDER_PRESETS: List<ProviderPreset> =
         // Paid / bring your own key
         // ------------------------------------------------------------------
         ProviderPreset(
+            id = "freebuff",
+            label = "Freebuff API",
+            baseUrl = "https://freebuff.com/api/v1/paid",
+            model = "deepseek/deepseek-v4-flash",
+            fallback = "deepseek/deepseek-v4-pro",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://freebuff.com/account/api",
+            note = "First-party Freebuff API, preset as the default endpoint.",
+        ),
+        ProviderPreset(
             id = "openai",
             label = "OpenAI",
             baseUrl = "https://api.openai.com/v1",
@@ -344,9 +354,10 @@ data class JarvisSettings(
     val hasApiKey: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_BASE_URL = "https://api.vv666.ai/v1"
-        const val DEFAULT_MODEL = "gpt-6.1-sol"
-        const val DEFAULT_FALLBACK_MODEL = "gpt-5.6-sol"
+        /** Freebuff's OpenAI-compatible API is the default endpoint. */
+        const val DEFAULT_BASE_URL = "https://freebuff.com/api/v1/paid"
+        const val DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+        const val DEFAULT_FALLBACK_MODEL = "deepseek/deepseek-v4-pro"
     }
 }
 

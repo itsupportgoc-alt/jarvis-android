@@ -113,10 +113,32 @@ android/.sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/a
 ## Configure the reasoning endpoint
 
 Open **SETTINGS → REASONING ENGINE**, pick a provider, and paste that provider's
-key. The default endpoint is the BlackPig relay: create a token under **API
-Keys** at <https://blackpig.vip/api/console> and paste it into the app. Every
+key. The default endpoint is the **Freebuff API**
+(`https://freebuff.com/api/v1/paid`, model `deepseek/deepseek-v4-flash`): create
+and fund a key at <https://freebuff.com/account/api> and paste it in. Every
 preset fills the endpoint and two model IDs, and **GET A KEY ↗** opens the
-provider's console.
+provider's console. The BlackPig relay is still available as a preset.
+
+### Start a build already connected
+
+The repository ships no key — a key inside a published APK is readable by
+anyone who unpacks it, and it spends the owner's balance. To get a **personal**
+build with the Freebuff key already sealed in, provide it at build time from one
+of these (all gitignored / not in the repo):
+
+```bash
+# android/local.properties  (recommended; not committed)
+freebuff.api.key=sk-…
+
+# or
+FREEBUFF_API_KEY=sk-… ./android/gradlew -p android assembleDebug
+# or
+./android/gradlew -p android assembleDebug -PfreebuffApiKey=sk-…
+```
+
+On first launch that key is encrypted into the Android Keystore and the app
+starts configured — no paste, no setup screen. Builds released here carry no key
+and open on the same preset, asking for one.
 
 Free tiers (`FREE TIER` row):
 
