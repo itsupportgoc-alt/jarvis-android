@@ -1,5 +1,6 @@
 package ai.jarvis.core
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -36,9 +37,21 @@ object ProviderProbe {
             .filterNot { it.isWhitespace() || it == '\u201C' || it == '\u201D' }
             .trim()
 
+    /** 401 and 403 are the only statuses that mean "this key is not accepted". */
+    fun isAuthFailure(status: Int): Boolean = status == 401 || status == 403
+
+    /**
+     * Checks a key against `GET {base}/models` and, when a `model` is supplied,
+     * against one minimal completion.
+     *
+     * The completion matters because some hosts (Freebuff among them) publish
+     * `/models` without authentication: a 200 there proves nothing about the
+     * key, while a 401 from `/chat/completions` proves it is rejected.
+     */
     fun listModels(
         baseUrl: String,
         apiKey: String,
+        model: String = "",
     ): Result {
         val key = sanitizeKey(apiKey)
         if (key.isEmpty()) return Result(false, "No key to test.")
@@ -70,14 +83,63 @@ object ProviderProbe {
                             .mapNotNull { array.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }
                             .sorted()
                     }.getOrDefault(emptyList())
-                if (models.isEmpty()) {
-                    Result(true, "Key accepted; the endpoint returned no model list.", emptyList())
-                } else {
-                    Result(true, "Key accepted. ${models.size} models available.", models)
+                val rejected = if (model.isBlank()) null else chatAuthFailure(baseUrl, key, model)
+                when {
+                    rejected != null -> Result(false, rejected, models)
+                    models.isEmpty() ->
+                        Result(true, "Key accepted; the endpoint returned no model list.", emptyList())
+                    else -> Result(true, "Key accepted. ${models.size} models available.", models)
                 }
             }
         } catch (error: Exception) {
             Result(false, "Cannot reach the endpoint: ${error.message ?: error.javaClass.simpleName}")
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /**
+     * One-token completion to find out whether the key is really accepted.
+     * Returns the rejection message, or null when the key was not refused
+     * (a 400 from a strict host is not an authentication failure).
+     */
+    private fun chatAuthFailure(
+        baseUrl: String,
+        key: String,
+        model: String,
+    ): String? {
+        var connection: HttpURLConnection? = null
+        return try {
+            val payload =
+                JSONObject()
+                    .put("model", model)
+                    .put("max_tokens", 1)
+                    .put("stream", false)
+                    .put(
+                        "messages",
+                        JSONArray().put(JSONObject().put("role", "user").put("content", "ping")),
+                    ).toString()
+            connection =
+                (URL(endpoint(baseUrl, "chat/completions")).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = TIMEOUT_MS
+                    readTimeout = TIMEOUT_MS
+                    doOutput = true
+                    setRequestProperty("Authorization", "Bearer $key")
+                    setRequestProperty("Content-Type", KIND)
+                    setRequestProperty("Accept", KIND)
+                }
+            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            if (!isAuthFailure(status)) return null
+            val body =
+                connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
+            "HTTP $status: ${detail(body)}"
+        } catch (error: Exception) {
+            null
         } finally {
             connection?.disconnect()
         }

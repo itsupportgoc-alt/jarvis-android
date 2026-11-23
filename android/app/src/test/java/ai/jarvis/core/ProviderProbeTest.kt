@@ -1,6 +1,8 @@
 package ai.jarvis.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderProbeTest {
@@ -14,6 +16,16 @@ class ProviderProbeTest {
             "https://api.vv666.ai/v1/models",
             ProviderProbe.endpoint(" https://api.vv666.ai/v1 ", "models"),
         )
+    }
+
+    @Test
+    fun onlyAuthStatusesCountAsARejectedKey() {
+        assertTrue(ProviderProbe.isAuthFailure(401))
+        assertTrue(ProviderProbe.isAuthFailure(403))
+        assertFalse(ProviderProbe.isAuthFailure(400))
+        assertFalse(ProviderProbe.isAuthFailure(404))
+        assertFalse(ProviderProbe.isAuthFailure(429))
+        assertFalse(ProviderProbe.isAuthFailure(200))
     }
 
     @Test

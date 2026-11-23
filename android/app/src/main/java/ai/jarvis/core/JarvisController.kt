@@ -794,6 +794,7 @@ class JarvisController(
     fun testProvider(
         baseUrl: String,
         key: String,
+        model: String,
         onResult: (ProviderProbe.Result) -> Unit,
     ) {
         val effective =
@@ -803,7 +804,11 @@ class JarvisController(
         scope.launch {
             val result =
                 withContext(Dispatchers.IO) {
-                    ProviderProbe.listModels(baseUrl.ifBlank { settingsStore.current.baseUrl }, effective)
+                    ProviderProbe.listModels(
+                        baseUrl.ifBlank { settingsStore.current.baseUrl },
+                        effective,
+                        model.ifBlank { settingsStore.current.model },
+                    )
                 }
             onResult(result)
         }

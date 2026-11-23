@@ -129,7 +129,7 @@ fun SettingsSheet(
     fun testKey() {
         testing = true
         keyStatus = "Testing ${baseUrl.ifBlank { settings.baseUrl }} …"
-        controller.testProvider(baseUrl, apiKey) { result ->
+        controller.testProvider(baseUrl, apiKey, model) { result ->
             testing = false
             keyStatusOk = result.ok
             keyStatus = result.message

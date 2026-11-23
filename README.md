@@ -114,7 +114,7 @@ android/.sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/a
 
 Open **SETTINGS → REASONING ENGINE**, pick a provider, and paste that provider's
 key. The default endpoint is the **Freebuff API**
-(`https://freebuff.com/api/v1/paid`, model `deepseek/deepseek-v4-flash`): create
+(`https://freebuff.com/api/v1/paid`, model `deepseek-v4.1-flash`): create
 and fund a key at <https://freebuff.com/account/api> and paste it in. Every
 preset fills the endpoint and two model IDs, and **GET A KEY ↗** opens the
 provider's console. The BlackPig relay is still available as a preset.
@@ -168,7 +168,8 @@ its base URL and two model IDs. Model IDs must exist for your key; check the
 provider's console or `GET {base_url}/models`.
 
 **Test before you talk to it.** `TEST CONNECTION` calls `GET {base_url}/models`
-with the key in the field (or the stored one) and reports the real answer:
+with the key in the field (or the stored one), then sends one minimal
+completion, and reports the real answer:
 `Key accepted. N models available.` plus tappable model chips, or the exact
 failure — `HTTP 401: invalid api key`, `HTTP 403: recharge_required`, an
 timeout, or a DNS error. The BlackPig relay returns

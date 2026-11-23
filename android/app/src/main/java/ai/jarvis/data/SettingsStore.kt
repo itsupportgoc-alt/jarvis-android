@@ -159,8 +159,11 @@ val PROVIDER_PRESETS: List<ProviderPreset> =
             id = "freebuff",
             label = "Freebuff API",
             baseUrl = "https://freebuff.com/api/v1/paid",
-            model = "deepseek/deepseek-v4-flash",
-            fallback = "deepseek/deepseek-v4-pro",
+            // IDs come from the live catalog at GET /api/v1/paid/models: no
+            // vendor prefix, and only deepseek-v4.1-flash advertises streaming
+            // plus tool calls, which the Rust client needs.
+            model = "deepseek-v4.1-flash",
+            fallback = "minimax-m3",
             tier = ProviderTier.PAID,
             consoleUrl = "https://freebuff.com/account/api",
             note = "First-party Freebuff API, preset as the default endpoint.",
@@ -356,8 +359,8 @@ data class JarvisSettings(
     companion object {
         /** Freebuff's OpenAI-compatible API is the default endpoint. */
         const val DEFAULT_BASE_URL = "https://freebuff.com/api/v1/paid"
-        const val DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
-        const val DEFAULT_FALLBACK_MODEL = "deepseek/deepseek-v4-pro"
+        const val DEFAULT_MODEL = "deepseek-v4.1-flash"
+        const val DEFAULT_FALLBACK_MODEL = "minimax-m3"
     }
 }
 
