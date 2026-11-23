@@ -8,8 +8,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import java.util.Locale
 
-/**
- * Voice input through Android's speech recogniser.
+/** Voice input through Android's speech recogniser.
  *
  * This is the shipped voice path because it works on every API 29+ device and
  * requests on-device recognition with EXTRA_PREFER_OFFLINE; many devices run it
@@ -120,8 +119,12 @@ class VoiceInput(
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
+                // Guard the pending final result against a too-eager restart.
+                // Android fires onEndOfSpeech a little before onResults, and the
+                // Kotlin side used to re-arm the microphone here, which could drop
+                // the incoming transcript. Close the session for the callback but
+                // tell the host we are done only after the final result is consumed.
                 listening = false
-                listener.onEnded()
             }
 
             override fun onError(error: Int) {
@@ -159,6 +162,9 @@ class VoiceInput(
                 } else {
                     listener.onError("I didn't catch that.", true)
                 }
+                // Tell the host the session is truly over, now that the final
+                // result has been consumed. On a fresh tap the host can now
+                // re-arm the microphone for the next utterance.
                 listener.onEnded()
             }
 
@@ -176,21 +182,21 @@ class VoiceInput(
                 eventType: Int,
                 params: Bundle?,
             ) = Unit
-        }
 
-    private fun messageFor(error: Int): String =
-        when (error) {
-            SpeechRecognizer.ERROR_NO_MATCH,
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-            -> "I didn't catch that."
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
-            SpeechRecognizer.ERROR_NETWORK,
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-            ->
-                "This device needs a network for speech recognition. Use text input, or build the offline Whisper core."
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The recogniser is busy. Try again."
-            SpeechRecognizer.ERROR_SERVER -> "The speech service failed."
-            SpeechRecognizer.ERROR_CLIENT -> "Speech input stopped."
-            else -> "Speech recognition error $error."
+            private fun messageFor(error: Int): String =
+                when (error) {
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+                    -> "I didn't catch that."
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
+                    SpeechRecognizer.ERROR_NETWORK,
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+                    ->
+                        "This device needs a network for speech recognition. Use text input, or build the offline Whisper core."
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The recogniser is busy. Try again."
+                    SpeechRecognizer.ERROR_SERVER -> "The speech service failed."
+                    SpeechRecognizer.ERROR_CLIENT -> "Speech input stopped."
+                    else -> "Speech recognition error $error."
+                }
         }
 }

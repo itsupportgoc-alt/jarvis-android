@@ -366,6 +366,10 @@ class JarvisController(
 
     private fun handleNativeEvent(raw: String) {
         runCatching {
+            // Silence used to look like a dead assistant: a turn that produced no
+            // text and no error left no trace anywhere. Every event is now
+            // visible in debug builds.
+            if (BuildConfig.DEBUG) Log.d(TAG, "engine event: ${raw.take(300)}")
             val event = JSONObject(raw)
             when (event.optString("type")) {
                 "state" -> {
@@ -420,6 +424,9 @@ class JarvisController(
                 "assistantDone" -> {
                     val text = event.optString("text").trim()
                     val mood = event.optString("mood", "neutral")
+                    if (text.isEmpty()) {
+                        Log.w(TAG, "the model finished with no answer for the last prompt")
+                    }
                     _ui.update {
                         it.copy(
                             streaming = "",
@@ -478,11 +485,14 @@ class JarvisController(
 
                 "error" -> {
                     val detail =
-                        event
-                            .optJSONObject("error")
-                            ?.optString("detail")
+                        event.optJSONObject("error")?.optString("detail")
                             ?.takeIf { it.isNotBlank() }
-                            ?: "The assistant ran into a problem."
+                            ?: event.optString("kind")
+                                ?.takeIf { it.isNotBlank() }
+                                ?.replaceFirstChar { it.uppercase() }
+                                ?.replace('_', ' ')
+                                ?: "The assistant ran into a problem."
+                    Log.w(TAG, "engine error: $detail")
                     reportError(detail, phase = Phase.ERROR)
                 }
 
