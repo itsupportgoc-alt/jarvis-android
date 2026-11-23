@@ -11,6 +11,7 @@ import ai.jarvis.data.VOICE_PRESETS
 import ai.jarvis.data.VoiceInputMode
 import ai.jarvis.data.VoicePreset
 import ai.jarvis.data.presetFor
+import ai.jarvis.data.providerIdFor
 import ai.jarvis.permissions.Permissions
 import ai.jarvis.service.JarvisService
 import ai.jarvis.tools.CapabilityStatus
@@ -113,7 +114,14 @@ class JarvisController(
     private val lineIds = AtomicLong(1)
 
     val settings: StateFlow<JarvisSettings> = settingsStore.settings
-    private val _ui = MutableStateFlow(JarvisUiState(needsSetup = !secure.hasApiKey))
+
+    /** Which stored key the current endpoint uses. */
+    private val activeProviderId: String get() = providerIdFor(settingsStore.current.baseUrl)
+
+    private val _ui =
+        MutableStateFlow(
+            JarvisUiState(needsSetup = !secure.hasApiKey(providerIdFor(settingsStore.current.baseUrl))),
+        )
     val ui: StateFlow<JarvisUiState> = _ui.asStateFlow()
 
     @Volatile
@@ -207,7 +215,7 @@ class JarvisController(
     @Synchronized
     private fun ensureEngine(): Boolean {
         if (handle != 0L) return true
-        if (!secure.hasApiKey) {
+        if (!secure.hasApiKey(activeProviderId)) {
             _ui.update { it.copy(needsSetup = true) }
             return false
         }
@@ -248,8 +256,8 @@ class JarvisController(
         capture?.stop()
         capture = null
         if (current != 0L) runCatching { JarvisNative.nativeDestroy(current) }
-        _ui.update { it.copy(needsSetup = !secure.hasApiKey) }
-        if (secure.hasApiKey) ensureEngine()
+        _ui.update { it.copy(needsSetup = !secure.hasApiKey(activeProviderId)) }
+        if (secure.hasApiKey(activeProviderId)) ensureEngine()
     }
 
     fun shutdown() {
@@ -280,7 +288,7 @@ class JarvisController(
                     "qwen",
                     JSONObject().apply {
                         put("baseUrl", s.baseUrl)
-                        put("apiKey", secure.apiKey)
+                        put("apiKey", secure.apiKey(activeProviderId))
                         put("model", s.model)
                         put("fallbackModel", s.fallbackModel)
                         put("temperature", 0.4)
@@ -739,13 +747,13 @@ class JarvisController(
         val key = ProviderProbe.sanitizeKey(raw)
         if (key.isEmpty()) return false
         val failure =
-            secure.saveApiKey(key).exceptionOrNull()
+            secure.saveApiKey(activeProviderId, key).exceptionOrNull()
         if (failure != null) {
             Log.e(TAG, "key store rejected the key", failure)
             reportError("The key could not be stored: ${failure.message ?: "keystore error"}")
             return false
         }
-        settingsStore.setApiKeyPresent(secure.hasApiKey)
+        settingsStore.setApiKeyPresent(secure.hasApiKey(activeProviderId))
         // Creating the native engine parses config and touches the filesystem;
         // do it off the main thread so the sheet answers immediately.
         scope.launch(Dispatchers.IO) {
@@ -766,7 +774,10 @@ class JarvisController(
         key: String,
         onResult: (ProviderProbe.Result) -> Unit,
     ) {
-        val effective = ProviderProbe.sanitizeKey(key).ifEmpty { secure.apiKey }
+        val effective =
+            ProviderProbe
+                .sanitizeKey(key)
+                .ifEmpty { secure.apiKey(providerIdFor(baseUrl.ifBlank { settingsStore.current.baseUrl })) }
         scope.launch {
             val result =
                 withContext(Dispatchers.IO) {
@@ -782,6 +793,7 @@ class JarvisController(
         fallback: String,
     ) {
         settingsStore.setEndpoint(baseUrl, model, fallback)
+        settingsStore.setApiKeyPresent(secure.hasApiKey(activeProviderId))
         rebuildEngine()
     }
 

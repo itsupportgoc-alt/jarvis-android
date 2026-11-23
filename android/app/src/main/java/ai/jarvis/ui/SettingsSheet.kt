@@ -5,9 +5,12 @@ import ai.jarvis.core.JarvisUiState
 import ai.jarvis.data.AnimationMode
 import ai.jarvis.data.JarvisSettings
 import ai.jarvis.data.PROVIDER_PRESETS
+import ai.jarvis.data.ProviderPreset
+import ai.jarvis.data.ProviderTier
 import ai.jarvis.data.VOICE_PRESETS
 import ai.jarvis.data.VoiceInputMode
 import ai.jarvis.data.presetFor
+import ai.jarvis.data.providerPresetFor
 import ai.jarvis.permissions.Permissions
 import ai.jarvis.tools.CapabilityStatus
 import ai.jarvis.tools.Confirmation
@@ -22,6 +25,8 @@ import ai.jarvis.ui.theme.JarvisText
 import ai.jarvis.ui.theme.MonoBody
 import ai.jarvis.ui.theme.MonoSmall
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +41,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -91,6 +97,8 @@ fun SettingsSheet(
 
     var apiKey by rememberSaveable { mutableStateOf("") }
     var baseUrl by remember(settings.baseUrl) { mutableStateOf(settings.baseUrl) }
+    val activeProvider = providerPresetFor(settings.baseUrl)
+    val providerLabel = activeProvider?.label ?: "custom endpoint"
     var model by remember(settings.model) { mutableStateOf(settings.model) }
     var fallback by remember(settings.fallbackModel) { mutableStateOf(settings.fallbackModel) }
     var rate by remember(settings.rate) { mutableFloatStateOf(settings.rate) }
@@ -110,7 +118,7 @@ fun SettingsSheet(
         keyStatusOk = ok
         keyStatus =
             if (ok) {
-                "Key saved and verified in the Keystore."
+                "Key saved for $providerLabel and verified in the Keystore."
             } else {
                 "Key was not saved. Check the value and try again."
             }
@@ -146,19 +154,44 @@ fun SettingsSheet(
             // ---------------- Engine ----------------
             item { SectionTitle("REASONING ENGINE") }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PROVIDER_PRESETS.forEach { preset ->
-                        FilterChip(
-                            selected = settings.baseUrl == preset.baseUrl && settings.model == preset.model,
-                            onClick = {
-                                baseUrl = preset.baseUrl
-                                model = preset.model
-                                fallback = preset.fallback
-                                controller.saveEndpoint(preset.baseUrl, preset.model, preset.fallback)
-                            },
-                            label = { Text(preset.label, style = MonoSmall) },
-                            colors = chipColors(),
-                        )
+                ProviderRow(
+                    header = "FREE TIER",
+                    presets = PROVIDER_PRESETS.filter { it.tier == ProviderTier.FREE },
+                    currentBaseUrl = settings.baseUrl,
+                ) { preset ->
+                    baseUrl = preset.baseUrl
+                    model = preset.model
+                    fallback = preset.fallback
+                    apiKey = ""
+                    keyStatus = null
+                    discoveredModels = emptyList()
+                    controller.saveEndpoint(preset.baseUrl, preset.model, preset.fallback)
+                }
+            }
+            item {
+                ProviderRow(
+                    header = "PAID / OWN KEY",
+                    presets = PROVIDER_PRESETS.filter { it.tier == ProviderTier.PAID },
+                    currentBaseUrl = settings.baseUrl,
+                ) { preset ->
+                    baseUrl = preset.baseUrl
+                    model = preset.model
+                    fallback = preset.fallback
+                    apiKey = ""
+                    keyStatus = null
+                    discoveredModels = emptyList()
+                    controller.saveEndpoint(preset.baseUrl, preset.model, preset.fallback)
+                }
+            }
+            item {
+                Text(
+                    "$providerLabel: ${activeProvider?.note ?: "Type any OpenAI-compatible base URL below."}",
+                    style = MonoSmall,
+                    color = JarvisMuted,
+                )
+                activeProvider?.let { preset ->
+                    TextButton(onClick = { openUrl(context, preset.consoleUrl) }) {
+                        Text("GET A KEY \u2197", style = MonoSmall, color = JarvisCyan)
                     }
                 }
             }
@@ -175,7 +208,7 @@ fun SettingsSheet(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Password),
                     keyboardActions = KeyboardActions(onDone = { saveKey() }),
-                    label = { Text("API key", style = MonoSmall) },
+                    label = { Text("API key \u00b7 $providerLabel", style = MonoSmall) },
                     placeholder = {
                         Text(
                             if (settings.hasApiKey) {
@@ -188,7 +221,8 @@ fun SettingsSheet(
                     },
                     supportingText = {
                         Text(
-                            "Paste the key from your provider's console, then press SAVE KEY. Stored with a non-exportable Keystore key, never in plain preferences.",
+                            "Paste this provider's key, then press SAVE KEY. Each provider keeps its own key " +
+                                "under a non-exportable Keystore key, never in plain preferences.",
                             style = MonoSmall,
                         )
                     },
@@ -213,7 +247,7 @@ fun SettingsSheet(
                     ) { Text(if (testing) "TESTING…" else "TEST CONNECTION", style = MonoSmall, color = JarvisGold) }
                 }
                 Text(
-                    if (settings.hasApiKey) "Key present" else "No key configured",
+                    if (settings.hasApiKey) "Key stored for $providerLabel" else "No key stored for $providerLabel",
                     style = MonoSmall,
                     color = if (settings.hasApiKey) JarvisCyan else JarvisAmber,
                 )
@@ -266,7 +300,9 @@ fun SettingsSheet(
                     }) { Text("APPLY & RESTART ENGINE", style = MonoSmall, color = JarvisCyan) }
                 }
                 Text(
-                    "Presets fill the endpoint: BlackPig relay (api.vv666.ai, OpenAI-compatible) or DashScope. Model IDs must exist for your key — use TEST CONNECTION to read them.",
+                    "Presets only fill the endpoint. Every entry above speaks the OpenAI-compatible chat API, " +
+                        "so one key per provider is all it needs. Model IDs must exist for your key — use " +
+                        "TEST CONNECTION to read the ones your key allows.",
                     style = MonoSmall,
                 )
                 if (discoveredModels.isNotEmpty()) {
@@ -644,6 +680,35 @@ private fun chipColors() =
         selectedContainerColor = JarvisCyan.copy(alpha = 0.18f),
         selectedLabelColor = JarvisCyan,
     )
+
+@Composable
+private fun ProviderRow(
+    header: String,
+    presets: List<ProviderPreset>,
+    currentBaseUrl: String,
+    onPick: (ProviderPreset) -> Unit,
+) {
+    Text(header, style = MonoSmall, color = JarvisMuted, modifier = Modifier.padding(bottom = 4.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(presets, key = { "provider-${it.id}" }) { preset ->
+            FilterChip(
+                selected = providerPresetFor(currentBaseUrl)?.id == preset.id,
+                onClick = { onPick(preset) },
+                label = { Text(preset.label, style = MonoSmall) },
+                colors = chipColors(),
+            )
+        }
+    }
+}
+
+private fun openUrl(
+    context: android.content.Context,
+    url: String,
+) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
 
 private val NOTIFICATION_TOOLS = setOf("read_notifications", "dismiss_notification")
 private val ACCESSIBILITY_TOOLS = setOf("read_screen_text", "tap_element", "scroll", "close_app")

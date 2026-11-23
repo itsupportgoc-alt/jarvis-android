@@ -20,9 +20,8 @@ class ProviderProbeTest {
     fun stripsWhitespaceAndInvisibleCharacters() {
         assertEquals("sk-abc123", ProviderProbe.sanitizeKey(" sk-abc\u200B123\n"))
         assertEquals("sk-abc123", ProviderProbe.sanitizeKey("\tsk-abc\uFEFF123 "))
-        assertEquals(
-            "sk-05636cbcd6c0cb12ddcdbf1bb6561daacad75ca36b0b6063",
-            ProviderProbe.sanitizeKey("sk-05636cbcd6c0cb12ddcdbf1bb6561daacad75ca36b0b6063"),
-        )
+        // A realistic length and shape, never a real credential.
+        val pasted = "sk-0000000000000000000000000000000000000000000000"
+        assertEquals(pasted, ProviderProbe.sanitizeKey("$pasted\r\n"))
     }
 }

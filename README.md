@@ -112,19 +112,37 @@ android/.sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/a
 
 ## Configure the reasoning endpoint
 
-Open **SETTINGS → REASONING ENGINE** and paste a key from your provider. The
-default endpoint is the BlackPig relay: create a token under **API Keys** at
-<https://blackpig.vip/api/console> and paste it into the app. Built-in presets
-(tap one to fill the fields):
+Open **SETTINGS → REASONING ENGINE**, pick a provider, and paste that provider's
+key. The default endpoint is the BlackPig relay: create a token under **API
+Keys** at <https://blackpig.vip/api/console> and paste it into the app. Every
+preset fills the endpoint and two model IDs, and **GET A KEY ↗** opens the
+provider's console.
 
-| Preset | Base URL | Model | Fallback |
-|---|---|---|---|
-| BlackPig relay | `https://api.vv666.ai/v1` | `gpt-6.1-sol` | `gpt-5.6-sol` |
-| DashScope (Qwen) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen3-30b-a3b` | `qwen2.5-14b-instruct` |
+Free tiers (`FREE TIER` row):
 
-Both speak OpenAI Chat Completions — `POST {base_url}/chat/completions` with
-`Authorization: Bearer <key>` — so any other compatible host works too: type its
-base URL and two model IDs. Model IDs must exist for your key; check the
+| Preset | Base URL | Default model |
+|---|---|---|
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Cerebras | `https://api.cerebras.ai/v1` | `llama-3.3-70b` |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.0-flash` |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` |
+| GitHub Models | `https://models.github.ai/inference` | `openai/gpt-4o-mini` |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-70b-instruct` |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-7B-Instruct` |
+| SambaNova | `https://api.sambanova.ai/v1` | `Meta-Llama-3.3-70B-Instruct` |
+| Hugging Face | `https://router.huggingface.co/v1` | `meta-llama/Llama-3.1-8B-Instruct` |
+| Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
+| DashScope (Qwen) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen3-30b-a3b` |
+
+Paid / own key (`PAID / OWN KEY` row): OpenAI, Anthropic, xAI Grok, DeepSeek,
+OpenRouter, Together, Fireworks, Perplexity, Cohere, Moonshot Kimi, Novita,
+Hyperbolic, DeepInfra, Nebius, Vercel AI and the BlackPig relay. Exact base
+URLs, defaults and console links live in `PROVIDER_PRESETS`
+(`android/app/src/main/java/ai/jarvis/data/SettingsStore.kt`).
+
+All of them speak OpenAI Chat Completions — `POST {base_url}/chat/completions`
+with `Authorization: Bearer <key>` — so any other compatible host works too: type
+its base URL and two model IDs. Model IDs must exist for your key; check the
 provider's console or `GET {base_url}/models`.
 
 **Test before you talk to it.** `TEST CONNECTION` calls `GET {base_url}/models`
@@ -136,9 +154,10 @@ timeout, or a DNS error. The BlackPig relay returns
 is valid; complete any recharge under **Recharge** in the console sidebar and the
 same key starts working without re-entering it.
 
-The key is entered on the phone and encrypted with a non-exportable AES-256-GCM
-key in the Android Keystore. It is never written to plain preferences, logs or
-the transcript store, and no key is baked into the APK or this repository; only
+Keys are entered on the phone and kept per provider — switching from Groq to
+OpenAI and back keeps both — each encrypted with a non-exportable AES-256-GCM
+key in the Android Keystore. A key is never written to plain preferences, logs
+or the transcript store, and none is baked into the APK or this repository; only
 the configured host receives it. `Apply & restart engine` rebuilds the native
 engine with the new endpoint. If the primary model is unknown to the account,
 the Rust backend retries once with the fallback **before** emitting any token.

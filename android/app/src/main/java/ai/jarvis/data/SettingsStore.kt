@@ -15,9 +15,16 @@ enum class VoiceInputMode {
     ON_DEVICE,
 }
 
+/** Whether the host has a standing free allowance or is pay-as-you-go. */
+enum class ProviderTier { FREE, PAID }
+
 /**
  * A known OpenAI-compatible host. A preset only fills the endpoint fields; the
  * API key is always entered by the user and kept in the Android Keystore.
+ *
+ * Every entry speaks `POST {baseUrl}/chat/completions` with a bearer token, so
+ * one client works for all of them. Model IDs are only defaults: the settings
+ * screen lists the ones a key is actually allowed to use via `GET /models`.
  */
 data class ProviderPreset(
     val id: String,
@@ -25,16 +32,115 @@ data class ProviderPreset(
     val baseUrl: String,
     val model: String,
     val fallback: String,
+    val tier: ProviderTier,
+    val consoleUrl: String,
+    val note: String,
 )
 
-val PROVIDER_PRESETS =
+val PROVIDER_PRESETS: List<ProviderPreset> =
     listOf(
+        // ------------------------------------------------------------------
+        // Free tiers (key required, usage is free or credit-backed)
+        // ------------------------------------------------------------------
         ProviderPreset(
-            id = "blackpig",
-            label = "BlackPig relay",
-            baseUrl = "https://api.vv666.ai/v1",
-            model = "gpt-6.1-sol",
-            fallback = "gpt-5.6-sol",
+            id = "groq",
+            label = "Groq",
+            baseUrl = "https://api.groq.com/openai/v1",
+            model = "llama-3.3-70b-versatile",
+            fallback = "llama-3.1-8b-instant",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://console.groq.com/keys",
+            note = "Free tier with a very low latency, hosted Llama and Qwen.",
+        ),
+        ProviderPreset(
+            id = "cerebras",
+            label = "Cerebras",
+            baseUrl = "https://api.cerebras.ai/v1",
+            model = "llama-3.3-70b",
+            fallback = "llama3.1-8b",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://cloud.cerebras.ai/",
+            note = "Free tier; fastest first-token times of the hosted providers.",
+        ),
+        ProviderPreset(
+            id = "gemini",
+            label = "Gemini",
+            baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/",
+            model = "gemini-2.0-flash",
+            fallback = "gemini-1.5-flash-8b",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://aistudio.google.com/apikey",
+            note = "Google AI Studio free tier through the OpenAI-compatible layer.",
+        ),
+        ProviderPreset(
+            id = "mistral",
+            label = "Mistral",
+            baseUrl = "https://api.mistral.ai/v1",
+            model = "mistral-small-latest",
+            fallback = "open-mistral-nemo",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://console.mistral.ai/api-keys",
+            note = "Free experimental tier, then pay-as-you-go.",
+        ),
+        ProviderPreset(
+            id = "githubmodels",
+            label = "GitHub Models",
+            baseUrl = "https://models.github.ai/inference",
+            model = "openai/gpt-4o-mini",
+            fallback = "openai/gpt-4o",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://github.com/settings/tokens",
+            note = "Free with a GitHub personal access token (models:read scope).",
+        ),
+        ProviderPreset(
+            id = "nvidia",
+            label = "NVIDIA NIM",
+            baseUrl = "https://integrate.api.nvidia.com/v1",
+            model = "meta/llama-3.1-70b-instruct",
+            fallback = "meta/llama-3.1-8b-instruct",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://build.nvidia.com/",
+            note = "Free credits; NVIDIA keys start with nvapi-.",
+        ),
+        ProviderPreset(
+            id = "siliconflow",
+            label = "SiliconFlow",
+            baseUrl = "https://api.siliconflow.cn/v1",
+            model = "Qwen/Qwen2.5-7B-Instruct",
+            fallback = "Qwen/Qwen2.5-72B-Instruct",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://cloud.siliconflow.cn/account/ak",
+            note = "Free Qwen and Llama endpoints with a Chinese account.",
+        ),
+        ProviderPreset(
+            id = "sambanova",
+            label = "SambaNova",
+            baseUrl = "https://api.sambanova.ai/v1",
+            model = "Meta-Llama-3.3-70B-Instruct",
+            fallback = "Meta-Llama-3.1-8B-Instruct",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://cloud.sambanova.ai/apis",
+            note = "Free tier for hosted Llama models.",
+        ),
+        ProviderPreset(
+            id = "huggingface",
+            label = "Hugging Face",
+            baseUrl = "https://router.huggingface.co/v1",
+            model = "meta-llama/Llama-3.1-8B-Instruct",
+            fallback = "Qwen/Qwen2.5-7B-Instruct",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://huggingface.co/settings/tokens",
+            note = "Inference Providers router; monthly free credits.",
+        ),
+        ProviderPreset(
+            id = "zhipu",
+            label = "Zhipu GLM",
+            baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+            model = "glm-4-flash",
+            fallback = "glm-4-plus",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://open.bigmodel.cn/usercenter/apikeys",
+            note = "glm-4-flash is free; glm-4-plus is metered.",
         ),
         ProviderPreset(
             id = "dashscope",
@@ -42,8 +148,185 @@ val PROVIDER_PRESETS =
             baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
             model = "qwen3-30b-a3b",
             fallback = "qwen2.5-14b-instruct",
+            tier = ProviderTier.FREE,
+            consoleUrl = "https://bailian.console.aliyun.com/",
+            note = "Alibaba Model Studio; free quota per model, then metered.",
+        ),
+        // ------------------------------------------------------------------
+        // Paid / bring your own key
+        // ------------------------------------------------------------------
+        ProviderPreset(
+            id = "openai",
+            label = "OpenAI",
+            baseUrl = "https://api.openai.com/v1",
+            model = "gpt-4o-mini",
+            fallback = "gpt-4o",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://platform.openai.com/api-keys",
+            note = "First-party OpenAI key.",
+        ),
+        ProviderPreset(
+            id = "anthropic",
+            label = "Anthropic",
+            baseUrl = "https://api.anthropic.com/v1",
+            model = "claude-3-7-sonnet-latest",
+            fallback = "claude-3-5-haiku-latest",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://console.anthropic.com/settings/keys",
+            note = "Claude through Anthropic's OpenAI-compatible endpoint.",
+        ),
+        ProviderPreset(
+            id = "xai",
+            label = "xAI Grok",
+            baseUrl = "https://api.x.ai/v1",
+            model = "grok-3-mini",
+            fallback = "grok-3",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://console.x.ai/",
+            note = "xAI Grok key.",
+        ),
+        ProviderPreset(
+            id = "deepseek",
+            label = "DeepSeek",
+            baseUrl = "https://api.deepseek.com/v1",
+            model = "deepseek-chat",
+            fallback = "deepseek-reasoner",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://platform.deepseek.com/api_keys",
+            note = "Cheap first-party DeepSeek key.",
+        ),
+        ProviderPreset(
+            id = "openrouter",
+            label = "OpenRouter",
+            baseUrl = "https://openrouter.ai/api/v1",
+            model = "openrouter/auto",
+            fallback = "openai/gpt-4o-mini",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://openrouter.ai/keys",
+            note = "One key for hundreds of models; the :free variants cost nothing.",
+        ),
+        ProviderPreset(
+            id = "together",
+            label = "Together",
+            baseUrl = "https://api.together.xyz/v1",
+            model = "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            fallback = "Qwen/Qwen2.5-72B-Instruct-Turbo",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://api.together.ai/settings/api-keys",
+            note = "Hosted open-weight models.",
+        ),
+        ProviderPreset(
+            id = "fireworks",
+            label = "Fireworks",
+            baseUrl = "https://api.fireworks.ai/inference/v1",
+            model = "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            fallback = "accounts/fireworks/models/qwen2p5-72b-instruct",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://fireworks.ai/account/api-keys",
+            note = "Hosted open-weight models; model IDs are full account paths.",
+        ),
+        ProviderPreset(
+            id = "perplexity",
+            label = "Perplexity",
+            baseUrl = "https://api.perplexity.ai",
+            model = "sonar",
+            fallback = "sonar-pro",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://www.perplexity.ai/settings/api",
+            note = "Search-grounded Sonar models; chat completions only.",
+        ),
+        ProviderPreset(
+            id = "cohere",
+            label = "Cohere",
+            baseUrl = "https://api.cohere.ai/compatibility/v1",
+            model = "command-r-plus-08-2024",
+            fallback = "command-r-08-2024",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://dashboard.cohere.com/api-keys",
+            note = "Command models via Cohere's compatibility layer.",
+        ),
+        ProviderPreset(
+            id = "moonshot",
+            label = "Moonshot Kimi",
+            baseUrl = "https://api.moonshot.ai/v1",
+            model = "moonshot-v1-8k",
+            fallback = "moonshot-v1-32k",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://platform.moonshot.ai/console/api-keys",
+            note = "Kimi models.",
+        ),
+        ProviderPreset(
+            id = "novita",
+            label = "Novita AI",
+            baseUrl = "https://api.novita.ai/v3/openai",
+            model = "meta-llama/llama-3.3-70b-instruct",
+            fallback = "deepseek/deepseek-v3",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://novita.ai/settings/key-management",
+            note = "Open-weight models, some with a free trial quota.",
+        ),
+        ProviderPreset(
+            id = "hyperbolic",
+            label = "Hyperbolic",
+            baseUrl = "https://api.hyperbolic.xyz/v1",
+            model = "meta-llama/Llama-3.3-70B-Instruct",
+            fallback = "Qwen/Qwen2.5-72B-Instruct",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://app.hyperbolic.xyz/settings",
+            note = "Open-weight models.",
+        ),
+        ProviderPreset(
+            id = "deepinfra",
+            label = "DeepInfra",
+            baseUrl = "https://api.deepinfra.com/v1/openai",
+            model = "meta-llama/Llama-3.3-70B-Instruct",
+            fallback = "Qwen/Qwen2.5-72B-Instruct",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://deepinfra.com/dash/api_keys",
+            note = "Open-weight models billed per token.",
+        ),
+        ProviderPreset(
+            id = "nebius",
+            label = "Nebius",
+            baseUrl = "https://api.studio.nebius.ai/v1",
+            model = "meta-llama/Llama-3.3-70B-Instruct",
+            fallback = "Qwen/Qwen2.5-72B-Instruct",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://studio.nebius.ai/",
+            note = "AI Studio keys; some free credits on signup.",
+        ),
+        ProviderPreset(
+            id = "vercel",
+            label = "Vercel AI",
+            baseUrl = "https://ai-gateway.vercel.sh/v1",
+            model = "openai/gpt-4o-mini",
+            fallback = "anthropic/claude-3-5-sonnet",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://vercel.com/dashboard/ai-gateway",
+            note = "Gateway key covering many vendors with one bill.",
+        ),
+        ProviderPreset(
+            id = "blackpig",
+            label = "BlackPig relay",
+            baseUrl = "https://api.vv666.ai/v1",
+            model = "gpt-6.1-sol",
+            fallback = "gpt-5.6-sol",
+            tier = ProviderTier.PAID,
+            consoleUrl = "https://blackpig.vip/api/console",
+            note = "Third-party relay; the open API needs a completed recharge.",
         ),
     )
+
+/** The preset whose endpoint the current settings point at, if any. */
+fun providerPresetFor(baseUrl: String): ProviderPreset? {
+    val normalized = baseUrl.trim().trimEnd('/')
+    return PROVIDER_PRESETS.firstOrNull { it.baseUrl.trimEnd('/').equals(normalized, ignoreCase = true) }
+}
+
+/** Key used when the endpoint is typed by hand rather than chosen from the list. */
+const val CUSTOM_PROVIDER_ID = "custom"
+
+fun providerIdFor(baseUrl: String): String = providerPresetFor(baseUrl)?.id ?: CUSTOM_PROVIDER_ID
 
 data class JarvisSettings(
     val baseUrl: String = DEFAULT_BASE_URL,

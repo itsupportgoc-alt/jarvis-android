@@ -30,21 +30,26 @@ class SecureStore(
     private val prefs = context.getSharedPreferences("jarvis_secure", Context.MODE_PRIVATE)
     private val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
 
-    val hasApiKey: Boolean
-        get() = !prefs.getString(KEY_API, null).isNullOrEmpty()
+    /**
+     * Keys are kept per provider, so switching between, say, Groq and OpenAI
+     * does not discard the other key. `providerId` comes from the preset list
+     * (`custom` for a hand-typed endpoint).
+     */
+    fun hasApiKey(providerId: String): Boolean = rawApiKey(providerId) != null
 
-    var apiKey: String
-        get() {
-            val blob = prefs.getString(KEY_API, null) ?: return ""
-            return runCatching { String(decrypt(blob), Charsets.UTF_8) }.getOrDefault("")
-        }
-        set(value) {
-            if (value.isBlank()) {
-                prefs.edit().remove(KEY_API).commit()
-            } else {
-                prefs.edit().putString(KEY_API, encrypt(value.toByteArray(Charsets.UTF_8))).commit()
-            }
-        }
+    fun apiKey(providerId: String): String = rawApiKey(providerId) ?: ""
+
+    private fun rawApiKey(providerId: String): String? {
+        val scoped = prefs.getString(keyName(providerId), null)
+        // v0.1.x stored a single key for whichever endpoint was active. Keep it
+        // as the BlackPig key so an existing install does not lose it.
+        val legacy = if (providerId == LEGACY_PROVIDER_ID) prefs.getString(KEY_API_LEGACY, null) else null
+        val blob = scoped ?: legacy ?: return null
+        return runCatching { String(decrypt(blob), Charsets.UTF_8) }.getOrNull()
+    }
+
+    private fun keyName(providerId: String): String =
+        KEY_PREFIX + providerId.lowercase().replace(Regex("[^a-z0-9_-]"), "_")
 
     /**
      * Stores the key and proves it can be read back.
@@ -54,11 +59,15 @@ class SecureStore(
      * can report what happened. A key that cannot be unwrapped is discarded and
      * re-encrypted under a fresh master key rather than left unusable.
      */
-    fun saveApiKey(value: String): Result<Unit> =
+    fun saveApiKey(
+        providerId: String,
+        value: String,
+    ): Result<Unit> =
         runCatching {
             val trimmed = value.trim()
+            val name = keyName(providerId)
             if (trimmed.isEmpty()) {
-                prefs.edit().remove(KEY_API).commit()
+                prefs.edit().remove(name).commit()
                 return@runCatching
             }
             val blob =
@@ -69,9 +78,9 @@ class SecureStore(
                     resetMasterKey()
                     encrypt(trimmed.toByteArray(Charsets.UTF_8))
                 }
-            check(prefs.edit().putString(KEY_API, blob).commit()) { "could not write preferences" }
+            check(prefs.edit().putString(name, blob).commit()) { "could not write preferences" }
             val readBack =
-                prefs.getString(KEY_API, null)?.let { runCatching { decrypt(it) }.getOrNull() }
+                prefs.getString(name, null)?.let { runCatching { decrypt(it) }.getOrNull() }
             check(readBack != null && String(readBack, Charsets.UTF_8) == trimmed) {
                 "the stored key could not be read back"
             }
@@ -143,7 +152,9 @@ class SecureStore(
         const val KEYSTORE = "AndroidKeyStore"
         const val ALIAS = "jarvis_master_v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
-        const val KEY_API = "qwen_api_key"
+        const val KEY_PREFIX = "provider_key_"
+        const val KEY_API_LEGACY = "qwen_api_key"
+        const val LEGACY_PROVIDER_ID = "blackpig"
         const val KEY_DATA = "store_data_key"
     }
 }
