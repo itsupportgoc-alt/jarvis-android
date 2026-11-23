@@ -34,8 +34,14 @@
 
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
-    <!-- Package visibility for intents we launch explicitly. -->
+    <!-- Package visibility for intents we launch explicitly.
+         The two speech entries are mandatory for apps targeting API 30+:
+         without them the platform cannot see the recogniser or the TTS engine,
+         so isRecognitionAvailable() is false and speech never starts. -->
     <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
         <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent>
