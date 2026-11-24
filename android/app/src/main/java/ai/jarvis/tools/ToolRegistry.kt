@@ -109,6 +109,8 @@ class ToolRegistry private constructor(
             // Navigation and web
             NavigateTool(),
             NearbyTool(),
+            WebSearchTool(),
+            ReadPageTool(),
             SearchWebTool(),
             OpenUrlTool(),
             // Notifications and screen

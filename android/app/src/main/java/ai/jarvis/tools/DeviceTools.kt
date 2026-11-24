@@ -608,7 +608,9 @@ class SearchWebTool :
     Tool(
         ToolSpec(
             name = "search_web",
-            description = "Open a web search in the browser.",
+            description =
+                "Open a web search in the phone's browser. Only use this when the user asks to " +
+                    "see a page; to answer a question yourself use web_search instead.",
             parameters = schema("query" to stringProp("Search terms")),
             required = listOf("query"),
         ),

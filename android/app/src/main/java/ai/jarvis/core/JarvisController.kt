@@ -879,6 +879,7 @@ class JarvisController(
             "send_sms", "send_whatsapp", "send_message" -> "Messaging…"
             "search_contacts", "get_contact_number" -> "Looking up…"
             "search_web", "open_url", "navigate_to", "find_nearby" -> "Searching…"
+            "web_search", "read_page" -> "Looking it up online…"
             "set_alarm", "set_timer", "create_event", "read_today_events" -> "Scheduling…"
             "set_brightness", "set_volume", "set_dnd", "toggle_flashlight" -> "Adjusting…"
             "open_app", "close_app" -> "Switching apps…"
@@ -1032,6 +1033,7 @@ class JarvisController(
                 ),
             )
         }
+        parts.add(INTERNET_HINT)
         val remembered = conversationMemory.getConversationContext(5)
         if (remembered.isNotBlank()) parts.add(remembered.trimEnd())
         parts.add("Current input: $input")
@@ -1142,5 +1144,16 @@ class JarvisController(
         const val LISTEN_RESTART_MAX_MS = 600L
         const val MAX_LISTEN_RESTARTS = 120
         const val FREEBUFF_PROVIDER_ID = "freebuff"
+
+        /**
+         * The system prompt lives in the prebuilt Rust library, so the internet
+         * policy is stated in the turn instead: the model must look facts up
+         * itself rather than sending the user to a browser.
+         */
+        const val INTERNET_HINT =
+            "You have live internet access through the web_search and read_page tools. " +
+                "For any question about facts, people, places, news or anything you are unsure of, " +
+                "call web_search first and answer from the results. Never tell the user to search " +
+                "or open a browser themselves."
     }
 }
