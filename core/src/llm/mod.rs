@@ -19,15 +19,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{JarvisError, Result};
 
-pub mod openai_stream;
-pub mod remote;
 #[cfg(feature = "local-llm")]
 pub mod local;
+pub mod openai_stream;
+pub mod remote;
 
-pub use openai_stream::OpenAiStreamParser;
-pub use remote::{QwenRemote, QwenRemoteConfig};
 #[cfg(feature = "local-llm")]
 pub use local::{LocalLlmConfig, QwenLocal};
+pub use openai_stream::OpenAiStreamParser;
+pub use remote::{QwenRemote, QwenRemoteConfig};
 
 pub const SYSTEM_PROMPT: &str = r#"You are JARVIS, a private voice assistant running on the user's Android phone.
 
@@ -207,7 +207,9 @@ pub enum LlmDelta {
     Mood(String),
     /// Complete tool call, emitted once its arguments have fully arrived.
     ToolCall(ToolCall),
-    Done { finish_reason: Option<String> },
+    Done {
+        finish_reason: Option<String>,
+    },
 }
 
 pub type DeltaStream = Pin<Box<dyn Stream<Item = Result<LlmDelta>> + Send>>;
@@ -221,6 +223,12 @@ pub trait LlmBackend: Send + Sync {
     ) -> Result<DeltaStream>;
 
     fn name(&self) -> &'static str;
+
+    /// One-time model load cost, when the backend has one. Emitted by the
+    /// engine as a latency stage so device benchmarks use measured values.
+    fn load_ms(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// Honest placeholder selected when no reasoning backend is available.
@@ -276,10 +284,7 @@ impl LlmBackend for ScriptedBackend {
             let cancel = cancel.clone();
             async move {
                 if cancel.is_cancelled() {
-                    return Some((
-                        Err(JarvisError::Cancelled),
-                        tokens.len().saturating_add(1),
-                    ));
+                    return Some((Err(JarvisError::Cancelled), tokens.len().saturating_add(1)));
                 }
                 if let Some(limit) = fail_after {
                     if index >= limit {

@@ -23,7 +23,7 @@ class IdentityComposerTest {
         models: List<String> = emptyList(),
         tools: List<ToolFact> = defaultTools(),
     ) = PlatformFacts(
-        appVersion = "0.2.1",
+        appVersion = "0.3.0",
         coreVersion = "0.1.0",
         androidVersion = "12",
         deviceModel = "Redmi 10",
@@ -163,7 +163,7 @@ class IdentityComposerTest {
     @Test
     fun versionsAndBackendAreCarriedVerbatim() {
         val snapshot = identity()
-        assertEquals("0.2.1", snapshot.appVersion)
+        assertEquals("0.3.0", snapshot.appVersion)
         assertEquals("0.1.0", snapshot.coreVersion)
         assertEquals(BackendKind.REMOTE, snapshot.backend)
         assertEquals("deepseek-v4.1-flash", snapshot.model)

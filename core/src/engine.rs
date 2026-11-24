@@ -31,6 +31,8 @@ use crate::llm::remote::QwenRemoteConfig;
 use crate::llm::{
     ChatMessage, DeltaStream, LlmBackend, LlmDelta, QwenRemote, ToolSchema, UnavailableBackend,
 };
+#[cfg(feature = "local-llm")]
+use crate::llm::{LocalLlmConfig, QwenLocal};
 use crate::memory::{MemoryKind, MemoryStore, RememberRequest};
 use crate::metrics::LatencyTrace;
 use crate::session::{SessionEvent, SessionMachine, SessionState};
@@ -57,7 +59,24 @@ fn default_history() -> usize {
 pub enum BackendKind {
     #[default]
     Remote,
+    Local,
     None,
+}
+
+fn default_context_tokens() -> u32 {
+    2_048
+}
+
+fn default_local_threads() -> i32 {
+    3
+}
+
+fn default_max_ram_mb() -> u64 {
+    2_048
+}
+
+fn default_local_max_tokens() -> u32 {
+    256
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,6 +85,17 @@ pub struct EngineConfig {
     pub qwen: QwenRemoteConfig,
     #[serde(default)]
     pub backend: BackendKind,
+    /// GGUF model for `backend: local`.
+    #[serde(default)]
+    pub model_path: Option<String>,
+    #[serde(default = "default_context_tokens")]
+    pub context_tokens: u32,
+    #[serde(default = "default_local_threads")]
+    pub threads: i32,
+    #[serde(default = "default_local_max_tokens")]
+    pub local_max_tokens: u32,
+    #[serde(default = "default_max_ram_mb")]
+    pub max_ram_mb: u64,
     /// Path to the encrypted local memory journal. Absent disables memory.
     #[serde(default)]
     pub memory_path: Option<String>,
@@ -91,6 +121,11 @@ impl Default for EngineConfig {
         Self {
             qwen: QwenRemoteConfig::default(),
             backend: BackendKind::default(),
+            model_path: None,
+            context_tokens: default_context_tokens(),
+            threads: default_local_threads(),
+            local_max_tokens: default_local_max_tokens(),
+            max_ram_mb: default_max_ram_mb(),
             memory_path: None,
             tools: Vec::new(),
             vad: VadConfig::default(),
@@ -428,6 +463,34 @@ fn unix_time() -> u64 {
         .unwrap_or(0)
 }
 
+/// Build the optional llama.cpp backend. A missing feature is a typed error,
+/// never a silent remote fallback.
+fn local_backend(config: &EngineConfig) -> Result<Arc<dyn LlmBackend>> {
+    #[cfg(feature = "local-llm")]
+    {
+        let path = config.model_path.as_deref().ok_or_else(|| {
+            JarvisError::NotConfigured("local reasoning needs a GGUF model path".into())
+        })?;
+        let local = QwenLocal::load(LocalLlmConfig {
+            model_path: PathBuf::from(path),
+            context_tokens: config.context_tokens,
+            threads: config.threads,
+            max_tokens: config.local_max_tokens,
+            max_ram_mb: config.max_ram_mb,
+            ..LocalLlmConfig::default()
+        })?;
+        Ok(Arc::new(local))
+    }
+    #[cfg(not(feature = "local-llm"))]
+    {
+        let _ = config;
+        Err(JarvisError::NotConfigured(
+            "This build was compiled without the local-llm feature; use a build with -PlocalLlm."
+                .into(),
+        ))
+    }
+}
+
 /// The public engine handle. Cheap to clone through `Arc` on the Kotlin side;
 /// the JNI layer owns exactly one boxed instance.
 pub struct JarvisEngine {
@@ -444,13 +507,24 @@ impl JarvisEngine {
             BackendKind::Remote => Arc::new(UnavailableBackend::new(
                 "No API key is configured. Add one in Settings to generate replies; memory and device tools still work.",
             )),
+            BackendKind::Local => local_backend(&config)?,
             BackendKind::None => Arc::new(UnavailableBackend::new(
-                "No reasoning backend is configured. Add an API key in Settings to generate replies.",
+                "No reasoning backend is configured. Add an API key or import a local GGUF model in Settings.",
             )),
         };
         let asr: Arc<dyn AsrEngine> = Arc::new(UnavailableAsr::default());
-        Self::with_components(config, sink, llm, asr)
+        let load_ms = llm.load_ms();
+        let event_sink = Arc::clone(&sink);
+        let engine = Self::with_components(config, sink, llm, asr)?;
+        if let Some(ms) = load_ms {
+            event_sink.emit(EngineEvent::Latency {
+                stage: "local_model_load".into(),
+                ms,
+            });
+        }
+        Ok(engine)
     }
+
 
     /// Used by tests and by feature builds that inject Whisper / a fake ASR.
     pub fn with_components(
@@ -1015,6 +1089,23 @@ mod tests {
             EngineEvent::Error { error } if matches!(error, JarvisError::NotConfigured(_))
         )));
         engine.stop();
+    }
+
+    #[test]
+    fn local_backend_without_a_model_path_refuses_to_start() {
+        let capture = Arc::new(Capture {
+            events: Mutex::new(Vec::new()),
+        });
+        let error = JarvisEngine::new(
+            EngineConfig {
+                backend: BackendKind::Local,
+                ..EngineConfig::default()
+            },
+            capture,
+        )
+        .err()
+        .expect("local backend without a model must fail");
+        assert!(matches!(error, JarvisError::NotConfigured(_)));
     }
 
     #[test]

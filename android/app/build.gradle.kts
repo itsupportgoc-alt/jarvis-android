@@ -7,6 +7,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Optional llama.cpp build. Off by default so the normal APK stays small;
+// `-PlocalLlm` (empty) or `-PlocalLlm=true` enables it.
+val localLlm = providers.gradleProperty("localLlm").map { it.lowercase() != "false" }.getOrElse(false)
+
 android {
     namespace = "ai.jarvis"
     compileSdk = 35
@@ -16,8 +20,8 @@ android {
         applicationId = "ai.jarvis"
         minSdk = 29
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.2.1"
+        versionCode = 12
+        versionName = "0.3.0"
 
         ndk {
             // 64-bit is the primary target; armv7 for older devices; x86_64 for
@@ -25,6 +29,7 @@ android {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
         buildConfigField("String", "JARVIS_CORE_VERSION", "\"0.1.0\"")
+        buildConfigField("boolean", "LOCAL_LLM", localLlm.toString())
         // Optional build-time Freebuff key so a personal build starts already
         // connected. Read from -PfreebuffApiKey, FREEBUFF_API_KEY, or
         // android/local.properties (gitignored). Never commit a real key: it
@@ -50,6 +55,8 @@ android {
 
     packaging {
         jniLibs.useLegacyPackaging = false
+        // A stale copy from a local-llm build must not leak into a normal APK.
+        if (!localLlm) jniLibs.excludes += "**/libc++_shared.so"
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
     }
 
@@ -130,24 +137,108 @@ val jniLibsDir = projectDir.resolve("src/main/jniLibs")
 // "false" keeps the Rust build.
 val skipRust = providers.gradleProperty("skipRust").map { it.lowercase() != "false" }.getOrElse(false)
 
+val ndkHome = System.getenv("ANDROID_NDK_HOME")
+    ?: System.getenv("ANDROID_NDK_ROOT")
+    ?: System.getenv("NDK_HOME")
+    ?: ""
+// CMake and Ninja live in the Android SDK's cmake package. Prefer an explicit
+// env override, then the newest installed SDK package.
+val sdkCmakeBin = rootProject.projectDir.resolve(".sdk/cmake")
+    .listFiles()
+    ?.map { it.resolve("bin") }
+    ?.filter { it.resolve("cmake.exe").exists() || it.resolve("cmake").exists() }
+    ?.maxByOrNull { it.parentFile.name }
+val cmakeBin = System.getenv("CMAKE_BIN") ?: sdkCmakeBin?.absolutePath ?: ""
+val libclangPath = System.getenv("LIBCLANG_PATH")
+    ?: rootProject.projectDir.resolve(".tools/libclang/clang/native").absolutePath
+
+fun localLlmEnv(task: Exec) {
+    task.environment("ANDROID_NDK", ndkHome)
+    task.environment("ANDROID_NDK_ROOT", ndkHome)
+    task.environment("ANDROID_NDK_HOME", ndkHome)
+    task.environment("LIBCLANG_PATH", libclangPath)
+    if (cmakeBin.isNotEmpty()) {
+        task.environment("PATH", listOf(cmakeBin, System.getenv("PATH") ?: "").joinToString(File.pathSeparator))
+        task.environment("CMAKE_GENERATOR", "Ninja")
+        val ninja = File(cmakeBin, if (File(cmakeBin, "ninja.exe").exists()) "ninja.exe" else "ninja")
+        task.environment("CMAKE_MAKE_PROGRAM", ninja.absolutePath)
+    }
+}
+
 val cargoNdkBuild by tasks.registering(Exec::class) {
     group = "rust"
     description = "Cross-compile jarvis-core for arm64-v8a, armeabi-v7a and x86_64"
     workingDir = coreDir
-    val ndkHome = System.getenv("ANDROID_NDK_HOME")
-        ?: System.getenv("ANDROID_NDK_ROOT")
-        ?: System.getenv("NDK_HOME")
-    environment("ANDROID_NDK_HOME", ndkHome ?: "")
-    commandLine(
+    localLlmEnv(this)
+    val args = mutableListOf(
         "cargo", "ndk",
         "-P", "29",
         "-t", "arm64-v8a",
         "-t", "armeabi-v7a",
         "-t", "x86_64",
         "-o", jniLibsDir.absolutePath,
-        "build", "--release"
+        "build", "--release",
     )
+    if (localLlm) {
+        args += listOf("--features", "local-llm")
+    }
+    commandLine(args)
     onlyIf { !skipRust }
+    doLast {
+        if (localLlm) {
+            copyCxxShared(ndkHome, jniLibsDir)
+        } else {
+            listOf("arm64-v8a", "armeabi-v7a", "x86_64").forEach { abi ->
+                File(jniLibsDir, "$abi/libc++_shared.so").delete()
+            }
+        }
+    }
+}
+
+// Reproduces the documented three-ABI llama.cpp proof without packaging it into
+// the normal APK. Output: app/build/local-llm-jniLibs/<abi>/.
+val cargoNdkBuildLocalLlm by tasks.registering(Exec::class) {
+    group = "rust"
+    description = "Cross-compile jarvis-core with local-llm for all three ABIs (proof)"
+    workingDir = coreDir
+    localLlmEnv(this)
+    doFirst {
+        require(ndkHome.isNotEmpty()) { "ANDROID_NDK_HOME is not set" }
+        require(File(cmakeBin, "cmake.exe").exists() || File(cmakeBin, "cmake").exists()) {
+            "CMake not found: install sdkmanager cmake;3.31.6 or set CMAKE_BIN"
+        }
+        require(File(libclangPath).isDirectory) { "libclang not found at $libclangPath" }
+    }
+    val outDir = layout.buildDirectory.dir("local-llm-jniLibs").get().asFile
+    commandLine(
+        "cargo", "ndk",
+        "-P", "29",
+        "-t", "arm64-v8a",
+        "-t", "armeabi-v7a",
+        "-t", "x86_64",
+        "-o", outDir.absolutePath,
+        "build", "--release", "--features", "local-llm", "--lib",
+    )
+    doLast { copyCxxShared(ndkHome, outDir) }
+}
+
+fun copyCxxShared(ndk: String, destination: File) {
+    if (ndk.isEmpty()) return
+    val prebuilt = File(ndk, "toolchains/llvm/prebuilt").listFiles()?.firstOrNull() ?: return
+    val libRoot = prebuilt.resolve("sysroot/usr/lib")
+    listOf(
+        "arm64-v8a" to "aarch64-linux-android",
+        "armeabi-v7a" to "arm-linux-androideabi",
+        "x86_64" to "x86_64-linux-android",
+    ).forEach { (abi, triple) ->
+        val source = libRoot.resolve("$triple/libc++_shared.so")
+        if (source.exists()) {
+            copy {
+                from(source)
+                into(File(destination, abi))
+            }
+        }
+    }
 }
 
 tasks.named("preBuild") {

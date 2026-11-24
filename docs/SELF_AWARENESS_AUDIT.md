@@ -31,7 +31,7 @@ but almost none of the "self-awareness" plan exists today:
 | 3. Self-monitoring | **Absent.** No battery/RAM/storage/network/permission/model health sampling. Only in-session tool traces and latency events. |
 | 4. Self-reflection | **Absent.** No task outcome evaluation, no error analysis, no learning history. |
 | 5. Autonomous goals | **Absent.** No goal records, planning, progress, reminders or resume. |
-| 6. Offline reasoning | **Absent.** `LlmBackend` exists but the only implementation is `QwenRemote`. The engine **cannot even be constructed without an API key**. `local-llm` is an empty Cargo feature. |
+| 6. Offline reasoning | **Opt-in, unbenchmarked.** `QwenLocal` is wired through `EngineConfig`, Settings import and a RAM guard behind `-PlocalLlm`; the default APK has no llama.cpp. No device inference timing exists yet. |
 | 7. Self-improvement | **Absent.** No improvement recommendations, no diagnostic reports. |
 | 8. Awareness dashboard | **Absent.** Settings sheet has capability rows and diagnostics; no awareness surface. |
 
@@ -112,7 +112,7 @@ Confirmed by source inspection and by the baseline checks in §13:
 
 | Area | Evidence | Consequence |
 |---|---|---|
-| Local LLM | `core/Cargo.toml`: `local-llm = []`; no module; `docs`/README say "not implemented" | No offline reasoning; no key = no engine |
+| Local LLM | `core/src/llm/local.rs`; `local-llm` feature; `EngineConfig` selection, Settings import and RAM guard behind `-PlocalLlm` | Offline reasoning needs an opt-in build + imported GGUF; no device benchmark yet |
 | Offline mode | No setting, no network gate; `QwenRemote` is the only backend | Cannot satisfy "airplane mode" acceptance item |
 | Local ASR | `whisper` feature not compiled in the shipped build; `UnavailableAsr` default | Voice requires the platform recogniser |
 | Local TTS | `TtsEngine` seam only; `VoiceEngine` = Android `TextToSpeech` | Offline TTS depends on installed voice data |
@@ -326,11 +326,13 @@ about phone-side end-to-end latency, which remains unmeasured.
 * **Update (Phase 3 prerequisite): CMake 3.31.6 and Ninja 1.12.1 are installed** in
   the Android SDK (`android/.sdk/cmake/3.31.6`), with libclang 18.1.1 in
   `android/.tools/libclang`. `QwenLocal` behind `local-llm` now cross-compiles for
-  all three ABIs; the exact recipe and proof are in `docs/OFFLINE_BUILD.md`.
-  The backend is still not wired into `EngineConfig` or the UI.
+  all three ABIs and is wired through `EngineConfig`, the `-PlocalLlm` Gradle
+  flag, Settings model import and a RAM guard; the exact recipe and proof are in
+  `docs/OFFLINE_BUILD.md`. Device inference is still unmeasured.
 * APK impact: the default debug APK remains llama-free. A `local-llm` build adds
-  roughly 4.2–6.3 MB per ABI in the unstripped probe and also requires packaging
-  `libc++_shared.so`; size the release per ABI before shipping it.
+  roughly 7.8–11.2 MB per ABI in the unstripped probe and also requires packaging
+  `libc++_shared.so`; the debug APK is about 56 MB, so size the release per ABI
+  before shipping it.
 
 ---
 
@@ -341,7 +343,7 @@ macros), tokio-util, async-trait, futures, serde, serde_json, reqwest (rustls, s
 json), eventsource-stream, rtrb, parking_lot, aes-gcm, getrandom, base64, tracing,
 jni (optional), whisper-rs (optional), llama-cpp-2 0.1.161 (optional),
 criterion/tempfile (dev). Features: `jni-bridge` (default), `whisper`,
-`local-llm` (llama.cpp), and empty `local-tts`, `silero-vad`.
+`local-llm` (llama.cpp, opt-in), and empty `local-tts`, `silero-vad`.
 
 **Android:** Compose BOM 2024.10.01, core-ktx 1.15.0, activity-compose 1.9.3,
 lifecycle-runtime-compose/lifecycle-service 2.8.7, compose ui/graphics/foundation/material3,
@@ -391,7 +393,7 @@ Severity: **H** blocks the goal, **M** correctness/security/quality, **L** drift
 | # | Sev | Finding | Action proposed |
 |---|---|---|---|
 | F1 | H | Engine cannot be created without a remote API key (`QwenRemote::new` + `ensureEngine`) | Phase 2 makes the backend selectable and allows a keyless/offline engine |
-| F2 | H | No wired local inference; engine still rejects `backend: local` | Backend compiled for 3 ABIs with toolchain proof; wiring, model import and device benchmark remain Phase 3 |
+| F2 | H | Local inference is wired but unmeasured on hardware | Backend compiled for 3 ABIs, model import + RAM guard implemented; run a device benchmark before claiming offline reasoning |
 | F3 | H | No offline mode or network gate; web tools and remote backend always available | Phase 1/3: explicit `offlineOnly`, backend refusal, capability status |
 | F4 | H | Memory is cloud-only and plaintext on GitHub; token in plain prefs | Phase 2: local encrypted memory first; GitHub becomes opt-in export |
 | F5 | H | Self-model is unverified prompt prose with hardcoded creator/user and false capability hints | Phase 1: capability registry + truthful identity snapshot |

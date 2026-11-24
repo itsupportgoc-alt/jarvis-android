@@ -364,6 +364,10 @@ data class JarvisSettings(
     val autoSendMessages: Boolean = false,
     /** Give the model a persistent self-model and continuity (self-aware persona). */
     val selfAware: Boolean = true,
+    /** Prefer an imported GGUF through llama.cpp over the remote endpoint. */
+    val localBackend: Boolean = false,
+    val localModelPath: String = "",
+    val localModelName: String = "",
     // GitHub sync config
     val githubToken: String = "",
     val githubOwner: String = "",
@@ -421,6 +425,9 @@ class SettingsStore(
             hasApiKey = prefs.getBoolean("has_api_key", false),
             autoSendMessages = prefs.getBoolean("auto_send_messages", false),
             selfAware = prefs.getBoolean("self_aware", true),
+            localBackend = prefs.getBoolean("local_backend", false),
+            localModelPath = prefs.getString("local_model_path", "") ?: "",
+            localModelName = prefs.getString("local_model_name", "") ?: "",
             githubToken = prefs.getString("github_token", "") ?: "",
             githubOwner = prefs.getString("github_owner", "") ?: "",
             githubRepo = prefs.getString("github_repo", "") ?: "",
@@ -465,6 +472,9 @@ class SettingsStore(
             .putBoolean("has_api_key", next.hasApiKey)
             .putBoolean("auto_send_messages", next.autoSendMessages)
             .putBoolean("self_aware", next.selfAware)
+            .putBoolean("local_backend", next.localBackend)
+            .putString("local_model_path", next.localModelPath)
+            .putString("local_model_name", next.localModelName)
             .putString("github_token", next.githubToken)
             .putString("github_owner", next.githubOwner)
             .putString("github_repo", next.githubRepo)
@@ -509,6 +519,13 @@ class SettingsStore(
     fun setAutoSendMessages(enabled: Boolean) = update { it.copy(autoSendMessages = enabled) }
 
     fun setSelfAware(enabled: Boolean) = update { it.copy(selfAware = enabled) }
+
+    fun setLocalBackend(enabled: Boolean) = update { it.copy(localBackend = enabled) }
+
+    fun setLocalModel(
+        path: String,
+        name: String,
+    ) = update { it.copy(localModelPath = path, localModelName = name) }
 
     fun setTrusted(
         tool: String,

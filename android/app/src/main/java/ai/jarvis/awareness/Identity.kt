@@ -49,6 +49,8 @@ data class PlatformFacts(
     val ttsAvailable: Boolean = false,
     val networkAvailable: Boolean = false,
     val localModelFiles: List<String> = emptyList(),
+    /** Whether this APK was compiled with the optional llama.cpp backend. */
+    val localInferenceCompiled: Boolean = false,
     val tools: List<ToolFact> = emptyList(),
     val behaviour: BehaviourFacts = BehaviourFacts(),
 )
@@ -187,6 +189,16 @@ object IdentityComposer {
                         CapabilityStatus.AVAILABLE,
                         detail = "Local model ${engine.model.ifBlank { installedModel ?: "loaded" }} is running.",
                     )
+                installedModel != null && platform.localInferenceCompiled ->
+                    Capability(
+                        CapabilityIds.LOCAL_REASONING,
+                        "local reasoning",
+                        CapabilityStatus.DISABLED,
+                        requirement = "local reasoning switched on in Settings",
+                        detail =
+                            "A GGUF model ($installedModel) is installed and llama.cpp is compiled in, " +
+                                "but local reasoning is currently switched off.",
+                    )
                 installedModel != null ->
                     Capability(
                         CapabilityIds.LOCAL_REASONING,
@@ -203,7 +215,12 @@ object IdentityComposer {
                         "local reasoning",
                         CapabilityStatus.NEEDS_MODEL,
                         requirement = "a GGUF model",
-                        detail = "No local model is installed, and local inference is not compiled into this build.",
+                        detail =
+                            if (platform.localInferenceCompiled) {
+                                "No GGUF model is imported; this build has the local llama.cpp backend."
+                            } else {
+                                "No local model is installed, and local inference is not compiled into this build."
+                            },
                     )
             }
         return listOf(remote, local)
@@ -449,8 +466,13 @@ object IdentityComposer {
         buildList {
             if (platform.localModelFiles.isNotEmpty() && engine.backend != BackendKind.LOCAL) {
                 add(
-                    "A local GGUF model (${platform.localModelFiles.first()}) is installed, but this build " +
-                        "cannot load it.",
+                    if (platform.localInferenceCompiled) {
+                        "A local GGUF model (${platform.localModelFiles.first()}) is installed, but local " +
+                            "reasoning is switched off in Settings."
+                    } else {
+                        "A local GGUF model (${platform.localModelFiles.first()}) is installed, but this build " +
+                            "cannot load it."
+                    },
                 )
             }
             if (!registry.isAvailable(CapabilityIds.LOCAL_REASONING)) {

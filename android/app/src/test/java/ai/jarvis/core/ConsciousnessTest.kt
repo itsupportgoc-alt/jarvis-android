@@ -35,7 +35,7 @@ class ConsciousnessTest {
         models: List<String> = emptyList(),
         toolCount: Int = 39,
     ) = PlatformFacts(
-        appVersion = "0.2.1",
+        appVersion = "0.3.0",
         coreVersion = "0.1.0",
         androidVersion = "12",
         deviceModel = "Redmi 10",
@@ -148,13 +148,13 @@ class ConsciousnessTest {
         assertFalse(text.contains("Who you are:"))
         assertTrue(text.contains("Right now:"))
         assertTrue(text.contains("Honesty:"))
-        assertTrue(text.contains("0.2.1"))
+        assertTrue(text.contains("0.3.0"))
     }
 
     @Test
     fun carriesVersionAndBackendFacts() {
         val text = render()
-        assertTrue(text.contains("0.2.1"))
+        assertTrue(text.contains("0.3.0"))
         assertTrue(text.contains("0.1.0"))
         assertTrue(text.contains("Freebuff API"))
         assertTrue(text.contains("deepseek-v4.1-flash"))

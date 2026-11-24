@@ -1,5 +1,6 @@
 package ai.jarvis.ui
 
+import ai.jarvis.BuildConfig
 import ai.jarvis.awareness.BackendKind
 import ai.jarvis.awareness.IdentitySnapshot
 import ai.jarvis.core.JarvisController
@@ -106,6 +107,10 @@ fun SettingsSheet(
     val exportLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
             uri?.let { controller.exportMemory(it) }
+        }
+    val importModelLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { controller.importLocalModel(it) }
         }
     var memoryQuery by remember { mutableStateOf("") }
     var newMemory by remember { mutableStateOf("") }
@@ -353,6 +358,59 @@ fun SettingsSheet(
                                 colors = chipColors(),
                             )
                         }
+                    }
+                }
+            }
+
+            item { Divider() }
+
+            // ---------------- On-device model ----------------
+            item { SectionTitle("ON-DEVICE MODEL") }
+            item {
+                Text(
+                    if (BuildConfig.LOCAL_LLM) {
+                        "Optional llama.cpp GGUF reasoning. The model is copied into app-private " +
+                            "storage and loaded with a 2 GB ceiling plus a 512 MB runtime reserve. " +
+                            "Start with a 0.5B–1.5B Q4_K_M model; a 3B model is experimental on 4 GB phones."
+                    } else {
+                        "This build has no llama.cpp backend. Rebuild the APK with -PlocalLlm to enable " +
+                            "on-device GGUF reasoning; remote reasoning and memory are unaffected."
+                    },
+                    style = MonoSmall,
+                    color = JarvisMuted,
+                )
+            }
+            if (BuildConfig.LOCAL_LLM) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                settings.localModelName.ifBlank { "No model imported" },
+                                style = MonoBody,
+                                color = JarvisText,
+                            )
+                            Text(
+                                if (settings.localModelPath.isBlank()) {
+                                    "Import a .gguf file to enable local reasoning."
+                                } else {
+                                    "Stored privately on this phone."
+                                },
+                                style = MonoSmall,
+                                color = JarvisMuted,
+                            )
+                        }
+                        Switch(
+                            checked = settings.localBackend && settings.localModelPath.isNotBlank(),
+                            onCheckedChange = { controller.setLocalBackend(it) },
+                            enabled = settings.localModelPath.isNotBlank(),
+                        )
+                    }
+                }
+                item {
+                    TextButton(
+                        onClick = { importModelLauncher.launch(arrayOf("*/*")) },
+                    ) {
+                        Text("IMPORT GGUF", style = MonoSmall, color = JarvisCyan)
                     }
                 }
             }

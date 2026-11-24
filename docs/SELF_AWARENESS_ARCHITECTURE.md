@@ -1,7 +1,8 @@
 # Self-Awareness Architecture
 
-**Status:** Phase 1 (identity and capability registry) and Phase 2 (encrypted
-local memory, keyless engine start) are implemented. Local reasoning, monitoring,
+**Status:** Phase 1 (identity and capability registry), Phase 2 (encrypted
+local memory, keyless engine start) and the opt-in Phase 3 local backend are
+implemented. The local backend has not been benchmarked on a device; monitoring,
 reflection, goals and the dashboard are still ahead; see
 `docs/SELF_AWARENESS_AUDIT.md` for the plan and `docs/MEMORY_SECURITY.md` for the
 memory threat model.
@@ -94,7 +95,7 @@ phrases and persona descriptions were corrected to match what actually ships.
 | Id | Available when | Never available when |
 |---|---|---|
 | `reasoning.remote` | API key **and** network are present | either is missing (reported as `UNAVAILABLE` with the requirement) |
-| `reasoning.local` | a local backend is compiled and running | this build has no local backend, even if a GGUF file exists |
+| `reasoning.local` | the opt-in local backend is compiled, selected and running | the build has no local backend or the user has not selected an imported GGUF |
 | `voice.input` | microphone granted, system recogniser installed, system mode selected | permission missing, no recogniser, or on-device mode selected without a compiled recogniser |
 | `voice.output` | a TTS service is installed | no engine installed |
 | `voice.offline` | on-device ASR **and** TTS are compiled/verified | always, in this build |
@@ -123,7 +124,7 @@ Your self-model is verified state, not imagination; speak as the same assistant
 across turns.
 
 Right now:
-- App 0.2.1, core 0.1.0, Android 12, Redmi 10. Session began 12 minutes ago; 6 messages remembered; mood neutral.
+- App 0.3.0, core 0.1.0, Android 12, Redmi 10. Session began 12 minutes ago; 6 messages remembered; mood neutral.
 - Reasoning: engine running (listening); remote model deepseek-v4.1-flash via Freebuff API.
 - Internet: available.
 

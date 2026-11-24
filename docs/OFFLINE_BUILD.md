@@ -1,10 +1,10 @@
 # Building the llama.cpp backend for Android
 
 The `local-llm` feature compiles a `QwenLocal` backend against
-[`llama-cpp-2`](https://crates.io/crates/llama-cpp-2) 0.1.161. It is **not** part
-of the default app build and is **not wired into `EngineConfig` yet**: this page
-proves the native build works for all three shipped ABIs. Runtime loading,
-RAM guards, model import and the Kotlin model picker are the rest of Phase 3.
+[`llama-cpp-2`](https://crates.io/crates/llama-cpp-2) 0.1.161. It is opt-in:
+`-PlocalLlm` turns on both the Rust feature and the Settings model-import UI.
+The default APK stays unchanged. This page records the toolchain, the three-ABI
+proof, and what is still unmeasured.
 
 ## Toolchain installed on this machine
 
@@ -79,40 +79,73 @@ Produced by the command above:
 
 | ABI | ELF | Size | llama.cpp present |
 | --- | --- | --- | --- |
-| arm64-v8a | ELF64 AArch64 | 6,317,776 bytes | yes |
-| armeabi-v7a | ELF32 ARM | 4,182,624 bytes | yes |
-| x86_64 | ELF64 x86-64 | 6,171,616 bytes | yes |
+| arm64-v8a | ELF64 AArch64 | 11,046,584 bytes | yes |
+| armeabi-v7a | ELF32 ARM | 7,848,708 bytes | yes |
+| x86_64 | ELF64 x86-64 | 11,209,872 bytes | yes |
 
-Each file is at `core/target/llama-probe/<abi>/libjarvis_core.so`, is Android
-API 29, and has 34 `tokenizer.ggml.*` strings from llama.cpp's GGUF loader.
+Each file is at `core/target/llama-probe/<abi>/libjarvis_core.so` (or the Gradle
+task's `app/build/local-llm-jniLibs/<abi>/`), is Android API 29, and has 34
+`tokenizer.ggml.*` strings from llama.cpp's GGUF loader. The grep output is from
+the unstripped probe; AGP strips these copies before packaging.
 `llvm-readelf -d` reports a dependency on `libc++_shared.so` because
-`llama-cpp-2` defaults to `android-shared-stdcxx`. Any APK that enables
-`local-llm` must package the NDK's `libc++_shared.so` for each ABI (or switch
-the crate to `static-stdcxx`). The default APK does not, because it does not
-enable the feature.
+`llama-cpp-2` defaults to `android-shared-stdcxx`.
+
+The same proof is available as a Gradle task:
+
+```bash
+cd android
+./gradlew --no-daemon :app:cargoNdkBuildLocalLlm
+# output: app/build/local-llm-jniLibs/<abi>/{libjarvis_core.so,libc++_shared.so}
+```
+
+For an installable opt-in APK:
+
+```bash
+./gradlew --no-daemon :app:assembleDebug -PlocalLlm
+```
+
+That build packages the NDK's `libc++_shared.so` for each ABI; the default APK
+explicitly excludes it. The debug local APK is about 56 MB because it carries
+three llama.cpp copies plus the C++ runtime.
 
 Build time was about 1 minute 31 seconds for armv7 + x86_64 after the arm64
 native build was warm. A cold three-ABI build is several minutes.
 
 ## What is implemented
 
-`core/src/llm/local.rs` compiles and provides:
+`core/src/llm/local.rs` and the engine wiring provide:
 
 - `LocalLlmConfig` validation (model path, context size, threads, sampling);
 - GGUF load/init with mmap-capable llama.cpp;
 - chat-template application, with a ChatML fallback;
 - a separate llama context per turn;
 - token streaming on a blocking worker, cancellation checked per token;
-- typed `JarvisError::Model` / `InvalidArgument` / `Cancelled` failures.
+- typed `JarvisError::Model` / `InvalidArgument` / `Cancelled` failures;
+- `EngineConfig` selection through `backend: "local"`, `modelPath`,
+  `contextTokens`, `threads`, `localMaxTokens` and `maxRamMb`;
+- a RAM guard that refuses a model before loading if `model + 512 MB` exceeds
+  either `maxRamMb` (default 2,048) or Android's `MemAvailable`;
+- Settings import of a `.gguf` through the document picker, copied into
+  app-private `files/models/`, with the same ceiling checked before selection;
+- model-load time emitted as the `local_model_load` latency stage; first-token
+  latency already appears in the existing debug `qwen_first_token` stage.
 
-It is deliberately not selectable from Kotlin yet. `backend: "local"` is still
-rejected by `EngineConfig`; this phase only proves that the native dependency
-cross-compiles. No model was loaded and no inference was run: there is no
-Android device attached and no GGUF in the repository.
+No GGUF was loaded and no inference was run here: there is no Android device
+attached and no model in the repository. The default 95 Rust tests cover backend
+selection (including the missing-model-path refusal); the RAM-guard tests sit
+behind `local-llm` and were compiled into the Android library but not executed
+because there is no device. None of this proves real inference.
 
-## Next step
+## Device benchmark procedure (not run)
 
-Wire the backend into `EngineConfig` (`modelPath`, context/thread/RAM limits),
-add the model import and free-RAM guard, package `libc++_shared.so`, then
-measure load time, first-token latency and peak RSS on the target phone. Do not
-claim offline reasoning works until that device test exists.
+No device is attached here, so there are no measured numbers. To run it:
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb logcat -s JarvisController | grep -E 'local_model_load|qwen_first_token'
+```
+
+Import a small Q4_K_M GGUF, switch **ON-DEVICE MODEL** on, and send one turn.
+`local_model_load` is the GGUF load time; `qwen_first_token` is measured from the
+start of the turn to the first streamed token. Also record peak RSS and the
+phone model. Do not claim offline reasoning works until that device test exists.

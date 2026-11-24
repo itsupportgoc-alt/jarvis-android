@@ -31,8 +31,11 @@ import ai.jarvis.tools.ToolRegistry
 import ai.jarvis.tools.UndoAction
 import ai.jarvis.util.Haptics
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
@@ -146,7 +149,7 @@ class JarvisController(
 
     private val _ui =
         MutableStateFlow(
-            JarvisUiState(needsSetup = !secure.hasApiKey(providerIdFor(settingsStore.current.baseUrl))),
+            JarvisUiState(needsSetup = !hasReasoningBackend()),
         )
     val ui: StateFlow<JarvisUiState> = _ui.asStateFlow()
 
@@ -215,15 +218,20 @@ class JarvisController(
                     // Recognition runs locally, so the transcript above is real
                     // even before a key exists. The keyless engine records the
                     // turn and returns a typed "not configured" error itself.
-                    ensureEngine()
-                    val current = handle
-                    if (current == 0L) {
-                        reportError("The assistant engine is not ready.")
-                        return
-                    }
                     conversationMemory.addUserMessage(text)
-                    val code = JarvisNative.nativeSubmitTurn(current, text, preambleFor())
-                    if (code != 0) reportError(codeMessage(code))
+                    scope.launch {
+                        if (!withContext(Dispatchers.IO) { ensureEngine() }) {
+                            reportError("The assistant engine is not ready.")
+                            return@launch
+                        }
+                        val current = handle
+                        if (current == 0L) {
+                            reportError("The assistant engine is not ready.")
+                            return@launch
+                        }
+                        val code = JarvisNative.nativeSubmitTurn(current, text, preambleFor())
+                        if (code != 0) reportError(codeMessage(code))
+                    }
                 }
 
                 override fun onLevel(level: Float) {
@@ -259,9 +267,13 @@ class JarvisController(
     init {
         seedBundledKey()
         applyVoiceSettings(settingsStore.current)
-        ensureEngine()
-        refreshAwareness()
-        memoryManager.refresh()
+        // A local GGUF load reads weights and can take seconds; never do that on
+        // the main thread. Remote engine creation is quick but uses the same path.
+        scope.launch {
+            withContext(Dispatchers.IO) { ensureEngine() }
+            refreshAwareness()
+            memoryManager.refresh()
+        }
     }
 
     /**
@@ -299,10 +311,9 @@ class JarvisController(
     private fun ensureEngine(): Boolean {
         if (handle != 0L) return true
         // The engine no longer requires a key: local memory and device tools
-        // must work before one exists. A keyless engine selects no reasoning
-        // backend and reports that on any turn.
-        val hasKey = secure.hasApiKey(activeProviderId)
-        _ui.update { it.copy(needsSetup = !hasKey) }
+        // must work before one exists. Without a key or an imported local model
+        // it selects no reasoning backend and reports that on any turn.
+        _ui.update { it.copy(needsSetup = !hasReasoningBackend()) }
         return try {
             val created =
                 JarvisNative.nativeCreate(
@@ -323,7 +334,7 @@ class JarvisController(
             }
             handle = created
             engineStarted = true
-            _ui.update { it.copy(needsSetup = !hasKey) }
+            _ui.update { it.copy(needsSetup = !hasReasoningBackend()) }
             refreshAwareness()
             true
         } catch (error: Throwable) {
@@ -341,7 +352,7 @@ class JarvisController(
         capture?.stop()
         capture = null
         if (current != 0L) runCatching { JarvisNative.nativeDestroy(current) }
-        _ui.update { it.copy(needsSetup = !secure.hasApiKey(activeProviderId)) }
+        _ui.update { it.copy(needsSetup = !hasReasoningBackend()) }
         ensureEngine()
         refreshAwareness()
         memoryManager.refresh()
@@ -386,7 +397,19 @@ class JarvisController(
                     },
                 )
                 put("tools", registry.schemasJson())
-                put("backend", if (secure.hasApiKey(activeProviderId)) "remote" else "none")
+                put(
+                    "backend",
+                    when {
+                        localBackendActive() -> "local"
+                        secure.hasApiKey(activeProviderId) -> "remote"
+                        else -> "none"
+                    },
+                )
+                put("modelPath", s.localModelPath)
+                put("contextTokens", 2_048)
+                put("threads", 3)
+                put("localMaxTokens", 256)
+                put("maxRamMb", 2_048)
                 put("memoryPath", File(app.filesDir, "jarvis/memory.enc").absolutePath)
                 put(
                     "vad",
@@ -565,17 +588,23 @@ class JarvisController(
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         Log.i(TAG, "command received: \"$trimmed\"")
-        ensureEngine()
         appendLine(Speaker.USER, trimmed)
         conversationMemory.addUserMessage(trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
-        val current = handle
-        if (current == 0L) {
-            reportError("The assistant engine is not ready.")
-            return
+        scope.launch {
+            // A local GGUF load can take seconds, so never wait for it on main.
+            if (!withContext(Dispatchers.IO) { ensureEngine() }) {
+                reportError("The assistant engine is not ready.")
+                return@launch
+            }
+            val current = handle
+            if (current == 0L) {
+                reportError("The assistant engine is not ready.")
+                return@launch
+            }
+            val code = JarvisNative.nativeSubmitTurn(current, trimmed, preambleFor())
+            if (code != 0) reportError(codeMessage(code))
         }
-        val code = JarvisNative.nativeSubmitTurn(current, trimmed, preambleFor())
-        if (code != 0) reportError(codeMessage(code))
     }
 
     /**
@@ -987,7 +1016,9 @@ class JarvisController(
     ) {
         settingsStore.setEndpoint(baseUrl, model, fallback)
         settingsStore.setApiKeyPresent(secure.hasApiKey(activeProviderId))
-        rebuildEngine()
+        scope.launch {
+            withContext(Dispatchers.IO) { rebuildEngine() }
+        }
     }
 
     fun saveVoice(
@@ -1048,6 +1079,105 @@ class JarvisController(
     /** Turn the self-aware persona on or off; it is applied on the next turn. */
     fun setSelfAware(enabled: Boolean) = settingsStore.setSelfAware(enabled)
 
+    private fun hasReasoningBackend(): Boolean =
+        secure.hasApiKey(activeProviderId) || localBackendActive()
+
+    private fun localBackendActive(): Boolean =
+        BuildConfig.LOCAL_LLM &&
+            settingsStore.current.localBackend &&
+            settingsStore.current.localModelPath.isNotBlank() &&
+            File(settingsStore.current.localModelPath).isFile
+
+    /** Select the imported GGUF, or refuse clearly if this build has no backend. */
+    fun setLocalBackend(enabled: Boolean) {
+        if (enabled && !BuildConfig.LOCAL_LLM) {
+            reportError("This build has no llama.cpp backend. Rebuild with -PlocalLlm.")
+            return
+        }
+        if (enabled && settingsStore.current.localModelPath.isBlank()) {
+            reportError("Import a .gguf model first.")
+            return
+        }
+        if (enabled && !File(settingsStore.current.localModelPath).isFile) {
+            reportError("The imported model file is missing. Import it again.")
+            return
+        }
+        settingsStore.setLocalBackend(enabled)
+        scope.launch {
+            withContext(Dispatchers.IO) { rebuildEngine() }
+        }
+    }
+
+    /**
+     * Copies a SAF-picked GGUF into app-private storage and applies the same
+     * RAM guard as Rust before selecting it. The copy is deliberately explicit:
+     * the content URI is not persisted and the engine never reads shared storage.
+     */
+    fun importLocalModel(uri: Uri) {
+        scope.launch {
+            var copied: File? = null
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val display = localModelDisplayName(uri)
+                        require(display.endsWith(".gguf", ignoreCase = true)) { "choose a .gguf file" }
+                        val safeName =
+                            display
+                                .substringAfterLast('/')
+                                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                                .ifBlank { "model.gguf" }
+                        val directory = File(app.filesDir, "models").apply { mkdirs() }
+                        val target = File(directory, safeName)
+                        copied = target
+                        app.contentResolver.openInputStream(uri)?.use { input ->
+                            target.outputStream().use { output -> input.copyTo(output) }
+                        } ?: error("the selected file could not be opened")
+                        require(target.length() > 0L) { "the selected file is empty" }
+                        val magic = ByteArray(4)
+                        target.inputStream().use { it.read(magic) }
+                        require(String(magic, Charsets.US_ASCII) == "GGUF") {
+                            "the selected file is not a GGUF model"
+                        }
+
+                        val requiredMb = target.length() / (1024L * 1024L) + RAM_RESERVE_MB
+                        val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val memory = ActivityManager.MemoryInfo()
+                        manager.getMemoryInfo(memory)
+                        val availableMb = memory.availMem / (1024L * 1024L)
+                        require(requiredMb <= MAX_MODEL_RAM_MB) {
+                            "insufficientMemory: model needs $requiredMb MB including reserve, ceiling is $MAX_MODEL_RAM_MB MB"
+                        }
+                        require(requiredMb <= availableMb) {
+                            "insufficientMemory: model needs $requiredMb MB including reserve, only $availableMb MB available"
+                        }
+                        target to safeName
+                    }
+                }
+            result
+                .onSuccess { (target, name) ->
+                    settingsStore.setLocalModel(target.absolutePath, name)
+                    settingsStore.setLocalBackend(true)
+                    withContext(Dispatchers.IO) { rebuildEngine() }
+                    appendLine(Speaker.SYSTEM, "Imported $name. On-device reasoning is selected.")
+                }.onFailure {
+                    copied?.delete()
+                    reportError("Model import failed: ${it.message}")
+                }
+        }
+    }
+
+    private fun localModelDisplayName(uri: Uri): String {
+        app.contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val name = cursor.getString(0)
+                    if (!name.isNullOrBlank()) return name
+                }
+            }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "model.gguf"
+    }
+
     /**
      * The full prompt for one turn: the verified self-model, what was already
      * said, then the new input. All of it is bounded, so a long history cannot
@@ -1090,11 +1220,17 @@ class JarvisController(
                     backend =
                         when {
                             handle == 0L -> BackendKind.NONE
+                            localBackendActive() -> BackendKind.LOCAL
                             secure.hasApiKey(activeProviderId) -> BackendKind.REMOTE
                             else -> BackendKind.NONE
                         },
-                    providerLabel = providerPresetFor(settings.baseUrl)?.label ?: "a custom endpoint",
-                    model = settings.model,
+                    providerLabel =
+                        if (localBackendActive()) {
+                            "On-device GGUF"
+                        } else {
+                            providerPresetFor(settings.baseUrl)?.label ?: "a custom endpoint"
+                        },
+                    model = if (localBackendActive()) settings.localModelName else settings.model,
                 ),
             cloudMemoryConfigured =
                 settings.githubToken.isNotBlank() &&
@@ -1242,5 +1378,7 @@ class JarvisController(
         const val LISTEN_RESTART_MAX_MS = 600L
         const val MAX_LISTEN_RESTARTS = 120
         const val FREEBUFF_PROVIDER_ID = "freebuff"
+        const val RAM_RESERVE_MB = 512L
+        const val MAX_MODEL_RAM_MB = 2_048L
     }
 }

@@ -7,7 +7,7 @@ remote reasoning, device tools, and an arc-reactor UI that reacts to real audio.
 
 ## Download
 
-**[Download JARVIS v0.2.1 — debug APK (32 MB)](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.2.1/jarvis-0.2.1-debug.apk)**
+**[Download the latest published JARVIS APK](https://github.com/itsupportgoc-alt/jarvis-android/releases)**
 
 Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
 (API 29). The APK is debug-signed for testing: enable "install unknown apps"
@@ -36,11 +36,11 @@ is built, and what was verified on the authoring machine:
 | Local memory + keyless start (AES-256-GCM journal, approval policy, Settings review/export) | Implemented | Rust + JVM tests; no device run |
 | JNI boundary (`catch_unwind`, typed codes, lock-free PCM push) | Implemented | Compiles on host; only runs in a JVM |
 | Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; 41 JVM tests |
-| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 37.6 MB debug APK with arm64/armv7/x86_64 `.so` |
+| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 33.9 MB debug APK with arm64/armv7/x86_64 `.so` |
 | Voice input | Android `SpeechRecognizer` (offline-preferred) ships and works; Rust Whisper path is feature-gated | Not run on a device here |
 | Android TTS | Implemented, sentence-streamed, ducking, real word timings for visemes | Not run on a device here |
 | **Wake word** | **Not compiled.** Interface + openWakeWord pipeline documented; model download provided | — |
-| **Local Qwen (GGUF)** | **Backend compiled; not wired into the engine or UI.** `QwenLocal` behind `local-llm` | Cross-compiled for arm64/armv7/x86_64; no model loaded or inference run |
+| **Local Qwen (GGUF)** | **Opt-in `-PlocalLlm` build.** Engine selection, Settings model import and a RAM guard are wired | Cross-compiled for arm64/armv7/x86_64; no model loaded or inference run |
 | **Piper / sherpa-onnx TTS** | **Not compiled.** `TtsEngine` seam + Piper model download only | — |
 | Device latency budget (wake/ASR/TTS/end-to-end) | Instrumented, not measured on hardware | — |
 
@@ -275,12 +275,14 @@ the foreground service's standby mode. This is the largest gap in the brief.
 ### Local Qwen, Piper / sherpa-onnx
 
 `LlmBackend` and `TtsEngine` are the seams. `QwenLocal` (`llama-cpp-2 0.1.161`)
-now exists behind the `local-llm` feature and its native llama.cpp dependency
-has been cross-compiled for arm64-v8a, armeabi-v7a and x86_64. It is **not wired
-into `EngineConfig` yet**, so `backend: local` is still rejected by the engine
-and no model has been loaded on a device. See
+is wired behind the opt-in `local-llm` feature: build with `-PlocalLlm`, import
+a GGUF in Settings, and the engine selects it instead of the remote endpoint.
+Its native llama.cpp dependency has been cross-compiled and packaged with
+`libc++_shared.so` for arm64-v8a, armeabi-v7a and x86_64. A RAM guard refuses a
+model that would exceed 2 GB or Android's available memory. No model has been
+loaded and no inference has been benchmarked on a device. See
 [docs/OFFLINE_BUILD.md](docs/OFFLINE_BUILD.md) for the exact CMake/Ninja/libclang
-recipe and the three-ABI proof. Piper (`sherpa-onnx`) remains not compiled.
+recipe, Gradle proof task and limits. Piper (`sherpa-onnx`) remains not compiled.
 
 ## Testing
 
@@ -288,7 +290,8 @@ recipe and the three-ABI proof. Piper (`sherpa-onnx`) remains not compiled.
 core:   cargo test        # 94 unit/integration tests
         cargo clippy --all-targets -- -D warnings
         cargo bench --bench latency
-        # optional local-llm three-ABI proof: docs/OFFLINE_BUILD.md
+        # optional local-llm proof: ./gradlew :app:cargoNdkBuildLocalLlm
+        # local APK: ./gradlew :app:assembleDebug -PlocalLlm
 android: ./android/gradlew -p android testDebugUnitTest   # 41 tests: tools, identity, self-model prompt, memory JSON
         java -jar ktlint.jar "app/src/main/java/**/*.kt"
 ```
@@ -314,8 +317,8 @@ Demo script: [DEMO.md](DEMO.md).
 
 ## Limitations worth stating plainly
 
-* Wake word and local Piper are not in this build. Local Qwen's native backend
-  compiles for all three ABIs but is not wired into the engine or UI yet.
+* Wake word and local Piper are not in this build. Local Qwen requires an
+  opt-in `-PlocalLlm` build and an imported GGUF; no device benchmark exists yet.
 * Device-side latency figures (wake, ASR RTF, TTS first audio, end-to-end) and
   the 60 fps/jank checks require hardware; they are instrumented but unmeasured.
 * The system recogniser may use the network on some devices; the offline Whisper

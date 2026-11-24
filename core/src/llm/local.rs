@@ -41,6 +41,9 @@ pub struct LocalLlmConfig {
     pub temperature: f32,
     pub top_p: f32,
     pub seed: u32,
+    /// Hard ceiling for the model file plus a fixed runtime reserve. The guard
+    /// refuses to load rather than relying on the Android OOM killer.
+    pub max_ram_mb: u64,
 }
 
 impl Default for LocalLlmConfig {
@@ -53,6 +56,7 @@ impl Default for LocalLlmConfig {
             temperature: 0.4,
             top_p: 0.9,
             seed: 0x4a41_5256,
+            max_ram_mb: 2_048,
         }
     }
 }
@@ -95,7 +99,65 @@ impl LocalLlmConfig {
                 "local top_p must be in (0, 1]".into(),
             ));
         }
-        Ok(())
+        if self.max_ram_mb < 512 {
+            return Err(JarvisError::InvalidArgument(
+                "local RAM ceiling must be at least 512 MB".into(),
+            ));
+        }
+        let model_bytes = std::fs::metadata(&self.model_path)
+            .map_err(|error| JarvisError::Model(format!("inspect GGUF: {error}")))?
+            .len();
+        ram_guard(model_bytes, available_ram_mb(), self.max_ram_mb, 512)
+    }
+}
+
+/// Refuse a model that cannot fit with a fixed 512 MB reserve for the app,
+/// Android and the KV cache. `available_mb` is `None` on hosts where the value
+/// cannot be read; the static ceiling still applies. Pure so it is testable
+/// without loading weights.
+pub fn ram_guard(
+    model_bytes: u64,
+    available_mb: Option<u64>,
+    max_ram_mb: u64,
+    reserve_mb: u64,
+) -> Result<()> {
+    if model_bytes == 0 {
+        return Err(JarvisError::Model("GGUF model is empty".into()));
+    }
+    let model_mb = model_bytes.div_ceil(1024 * 1024);
+    let required_mb = model_mb.saturating_add(reserve_mb);
+    if required_mb > max_ram_mb {
+        return Err(JarvisError::Model(format!(
+            "insufficientMemory: model needs {required_mb} MB including reserve, ceiling is {max_ram_mb} MB"
+        )));
+    }
+    if let Some(available) = available_mb {
+        if required_mb > available {
+            return Err(JarvisError::Model(format!(
+                "insufficientMemory: model needs {required_mb} MB including reserve, only {available} MB available"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Android/Linux expose `MemAvailable`; on other hosts the static ceiling is
+/// still enforced but the dynamic check is skipped.
+fn available_ram_mb() -> Option<u64> {
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    {
+        let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+        for line in info.lines() {
+            if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
+                return Some(kb / 1024);
+            }
+        }
+        None
+    }
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    {
+        None
     }
 }
 
@@ -103,6 +165,7 @@ struct LoadedModel {
     backend: LlamaBackend,
     model: LlamaModel,
     cfg: LocalLlmConfig,
+    load_ms: f64,
 }
 
 /// A loaded llama.cpp model exposed through the same trait as the remote
@@ -116,17 +179,25 @@ impl QwenLocal {
     /// Load a GGUF file. This blocks on disk I/O and llama.cpp initialization;
     /// call it from a worker, not from the UI thread.
     pub fn load(cfg: LocalLlmConfig) -> Result<Self> {
+        let started = std::time::Instant::now();
         cfg.validate()?;
         let backend = LlamaBackend::init()
             .map_err(|error| JarvisError::Model(format!("llama.cpp backend: {error}")))?;
         let params = LlamaModelParams::default().with_n_gpu_layers(0);
         let model = LlamaModel::load_from_file(&backend, &cfg.model_path, &params)
             .map_err(|error| JarvisError::Model(format!("load GGUF: {error}")))?;
+        let load_ms = started.elapsed().as_secs_f64() * 1000.0;
+        tracing::info!(
+            load_ms,
+            path = %cfg.model_path.display(),
+            "local GGUF loaded"
+        );
         Ok(Self {
             inner: Arc::new(LoadedModel {
                 backend,
                 model,
                 cfg,
+                load_ms,
             }),
         })
     }
@@ -160,6 +231,10 @@ impl LlmBackend for QwenLocal {
 
     fn name(&self) -> &'static str {
         "llama.cpp (GGUF)"
+    }
+
+    fn load_ms(&self) -> Option<f64> {
+        Some(self.inner.load_ms)
     }
 }
 
@@ -333,6 +408,25 @@ mod tests {
         assert!(matches!(
             cfg.validate().unwrap_err(),
             JarvisError::NotConfigured(_)
+        ));
+    }
+
+    #[test]
+    fn ram_guard_refuses_models_that_cannot_fit() {
+        assert!(ram_guard(1024 * 1024 * 900, Some(3_000), 2_048, 512).is_ok());
+        let error = ram_guard(1024 * 1024 * 1_700, Some(4_000), 2_048, 512).unwrap_err();
+        assert!(
+            matches!(error, JarvisError::Model(ref detail) if detail.contains("insufficientMemory"))
+        );
+        let low = ram_guard(1024 * 1024 * 900, Some(1_200), 2_048, 512).unwrap_err();
+        assert!(matches!(low, JarvisError::Model(ref detail) if detail.contains("available")));
+    }
+
+    #[test]
+    fn empty_model_is_rejected_by_ram_guard() {
+        assert!(matches!(
+            ram_guard(0, Some(8_000), 2_048, 512).unwrap_err(),
+            JarvisError::Model(_)
         ));
     }
 

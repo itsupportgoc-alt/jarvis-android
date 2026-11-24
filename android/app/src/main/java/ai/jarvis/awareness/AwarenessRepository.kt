@@ -86,6 +86,7 @@ class AwarenessRepository(
             ttsAvailable = ttsAvailable(),
             networkAvailable = networkAvailable(),
             localModelFiles = localModelFiles(),
+            localInferenceCompiled = BuildConfig.LOCAL_LLM,
             tools =
                 registry.all
                     .sortedBy { it.spec.name }
