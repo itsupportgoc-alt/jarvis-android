@@ -21,9 +21,13 @@ use crate::error::{JarvisError, Result};
 
 pub mod openai_stream;
 pub mod remote;
+#[cfg(feature = "local-llm")]
+pub mod local;
 
 pub use openai_stream::OpenAiStreamParser;
 pub use remote::{QwenRemote, QwenRemoteConfig};
+#[cfg(feature = "local-llm")]
+pub use local::{LocalLlmConfig, QwenLocal};
 
 pub const SYSTEM_PROMPT: &str = r#"You are JARVIS, a private voice assistant running on the user's Android phone.
 
@@ -217,6 +221,38 @@ pub trait LlmBackend: Send + Sync {
     ) -> Result<DeltaStream>;
 
     fn name(&self) -> &'static str;
+}
+
+/// Honest placeholder selected when no reasoning backend is available.
+///
+/// A keyless build still creates the engine: local memory, device tools and
+/// text input must work before a key exists. A turn then fails with a typed
+/// `NotConfigured` error instead of pretending to reason.
+pub struct UnavailableBackend {
+    pub reason: String,
+}
+
+impl UnavailableBackend {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl LlmBackend for UnavailableBackend {
+    async fn stream_chat(
+        &self,
+        _messages: Vec<ChatMessage>,
+        _cancel: CancellationToken,
+    ) -> Result<DeltaStream> {
+        Err(JarvisError::NotConfigured(self.reason.clone()))
+    }
+
+    fn name(&self) -> &'static str {
+        "unavailable"
+    }
 }
 
 /// Test/support backend: deterministic token stream. Used by engine tests and

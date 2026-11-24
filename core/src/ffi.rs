@@ -15,7 +15,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use jni::objects::{GlobalRef, JClass, JFloatArray, JObject, JString, JValue};
-use jni::sys::{jfloat, jint, jlong};
+use jni::sys::{jfloat, jint, jlong, jstring};
 use jni::{JNIEnv, JavaVM};
 
 use crate::engine::{EngineConfig, HostSink, JarvisEngine};
@@ -203,6 +203,29 @@ pub extern "system" fn Java_ai_jarvis_core_JarvisNative_nativeSubmitText(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_ai_jarvis_core_JarvisNative_nativeSubmitTurn(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    text: JString<'_>,
+    preamble: JString<'_>,
+) -> jint {
+    let (Ok(text), Ok(preamble)) = (
+        read_string(&mut env, &text),
+        read_string(&mut env, &preamble),
+    ) else {
+        return JarvisError::InvalidArgument("turn is not UTF-8".into()).code();
+    };
+    let outcome = with_engine(handle, Err(JarvisError::Internal("native call panicked".into())), |engine| {
+        engine.submit_turn(&text, &preamble)
+    });
+    match outcome {
+        Ok(()) => OK,
+        Err(error) => error.code(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_ai_jarvis_core_JarvisNative_nativeSubmitToolResult(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -260,6 +283,47 @@ pub extern "system" fn Java_ai_jarvis_core_JarvisNative_nativePushPcm(
             offset += chunk;
         }
     });
+}
+
+fn error_json(
+    kind: &str,
+    detail: &str,
+) -> String {
+    serde_json::json!({
+        "ok": false,
+        "error": { "kind": kind, "detail": detail }
+    })
+    .to_string()
+}
+
+/// Versioned JSON command channel (memory now, goals/reflection later).
+/// Never throws: a bad request or a dead engine becomes an error object.
+#[no_mangle]
+pub extern "system" fn Java_ai_jarvis_core_JarvisNative_nativeInvoke(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    request_json: JString<'_>,
+) -> jstring {
+    let payload = catch_unwind(AssertUnwindSafe(|| {
+        let request = match read_string(&mut env, &request_json) {
+            Ok(request) => request,
+            Err(message) => return error_json("invalidArgument", &message),
+        };
+        if handle == 0 {
+            return error_json("notConfigured", "the engine is not running");
+        }
+        // SAFETY: same handle contract as every other entry point; the Kotlin
+        // facade owns exactly one live handle and never uses it after destroy.
+        let engine = unsafe { &*(handle as *const JarvisEngine) };
+        engine.invoke(&request)
+    }))
+    .unwrap_or_else(|_| error_json("internal", "native call panicked"));
+
+    match env.new_string(payload) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]

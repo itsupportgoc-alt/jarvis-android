@@ -28,7 +28,10 @@ use crate::audio::{peak, visual_level, AudioRing, FrameAssembler, PcmIngress, FR
 use crate::error::{JarvisError, Result};
 use crate::events::EngineEvent;
 use crate::llm::remote::QwenRemoteConfig;
-use crate::llm::{ChatMessage, DeltaStream, LlmBackend, LlmDelta, QwenRemote, ToolSchema};
+use crate::llm::{
+    ChatMessage, DeltaStream, LlmBackend, LlmDelta, QwenRemote, ToolSchema, UnavailableBackend,
+};
+use crate::memory::{MemoryKind, MemoryStore, RememberRequest};
 use crate::metrics::LatencyTrace;
 use crate::session::{SessionEvent, SessionMachine, SessionState};
 use crate::storage::EncryptedStore;
@@ -44,10 +47,28 @@ fn default_history() -> usize {
     24
 }
 
+/// Which reasoning backend the engine builds.
+///
+/// `none` is not a broken configuration: it lets memory, tools and voice run
+/// before an API key exists. A turn then fails with a typed error instead of
+/// silently reaching the network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BackendKind {
+    #[default]
+    Remote,
+    None,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineConfig {
     pub qwen: QwenRemoteConfig,
+    #[serde(default)]
+    pub backend: BackendKind,
+    /// Path to the encrypted local memory journal. Absent disables memory.
+    #[serde(default)]
+    pub memory_path: Option<String>,
     #[serde(default)]
     pub tools: Vec<ToolSchema>,
     #[serde(default)]
@@ -69,6 +90,8 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             qwen: QwenRemoteConfig::default(),
+            backend: BackendKind::default(),
+            memory_path: None,
             tools: Vec::new(),
             vad: VadConfig::default(),
             max_history_messages: default_history(),
@@ -102,6 +125,7 @@ struct Inner {
     dispatcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     audio_tx: Mutex<Option<mpsc::UnboundedSender<AudioEvent>>>,
     storage: Option<Arc<EncryptedStore>>,
+    memory: Option<Arc<MemoryStore>>,
     last_reply: Mutex<String>,
 }
 
@@ -169,6 +193,14 @@ impl Inner {
         // Never start with a tool result whose assistant call was trimmed.
         while matches!(history.first().map(|m| m.role), Some(crate::llm::Role::Tool)) {
             history.remove(0);
+        }
+    }
+
+    fn remember(&self, request: RememberRequest) {
+        if let Some(memory) = &self.memory {
+            if let Err(error) = memory.remember(request) {
+                tracing::debug!(%error, "memory record skipped");
+            }
         }
     }
 
@@ -260,6 +292,8 @@ impl Inner {
         }
 
         let trimmed = assistant.trim().to_string();
+        // Assistant output is not memory: history keeps it for this session, but
+        // generated text must not later be injected as a verified record.
         self.history.lock().push(ChatMessage::assistant(
             trimmed.clone(),
             tool_calls.clone(),
@@ -299,8 +333,19 @@ impl Inner {
         // Otherwise the host calls `tts_done()` once its speech queue drains.
     }
 
-    async fn run_turn(self: Arc<Self>, user_text: String) {
+    async fn run_turn(self: Arc<Self>, user_text: String, preamble: Option<String>) {
         let token = self.begin_turn();
+        // Retrieve before recording this turn so the prompt does not repeat the
+        // input back to the model as a "remembered" fact.
+        let memory_context = self
+            .memory
+            .as_ref()
+            .map(|memory| memory.context_for(&user_text, 600))
+            .unwrap_or_default();
+        self.remember(RememberRequest::conversation(
+            MemoryKind::ShortTerm,
+            user_text.clone(),
+        ));
         self.log_record(serde_json::json!({
             "t": unix_time(),
             "role": "user",
@@ -309,7 +354,15 @@ impl Inner {
         self.history.lock().push(ChatMessage::user(user_text));
         self.trim_history(self.cfg.max_history_messages);
 
-        let messages = self.history.lock().clone();
+        let mut messages = self.history.lock().clone();
+        if !memory_context.is_empty() {
+            messages.insert(0, ChatMessage::system(memory_context));
+        }
+        // The host supplies its verified self-model separately so it never
+        // becomes part of the user's turn (history, memory, or transcript).
+        if let Some(preamble) = preamble.filter(|text| !text.trim().is_empty()) {
+            messages.insert(0, ChatMessage::system(preamble));
+        }
         let stream = match self.llm.stream_chat(messages, token.clone()).await {
             Ok(stream) => stream,
             Err(JarvisError::Cancelled) => return,
@@ -337,7 +390,7 @@ impl Inner {
                     ms: started.elapsed().as_secs_f64() * 1000.0,
                 });
                 self.emit(EngineEvent::Transcript { text: text.clone() });
-                Arc::clone(self).run_turn(text).await;
+                Arc::clone(self).run_turn(text, None).await;
             }
             Ok(_) => {
                 self.emit(EngineEvent::Transcript {
@@ -384,7 +437,17 @@ pub struct JarvisEngine {
 
 impl JarvisEngine {
     pub fn new(config: EngineConfig, sink: Arc<dyn HostSink>) -> Result<Self> {
-        let llm = Arc::new(QwenRemote::new(config.qwen.clone(), config.tools.clone())?);
+        let llm: Arc<dyn LlmBackend> = match config.backend {
+            BackendKind::Remote if !config.qwen.api_key.trim().is_empty() => {
+                Arc::new(QwenRemote::new(config.qwen.clone(), config.tools.clone())?)
+            }
+            BackendKind::Remote => Arc::new(UnavailableBackend::new(
+                "No API key is configured. Add one in Settings to generate replies; memory and device tools still work.",
+            )),
+            BackendKind::None => Arc::new(UnavailableBackend::new(
+                "No reasoning backend is configured. Add an API key in Settings to generate replies.",
+            )),
+        };
         let asr: Arc<dyn AsrEngine> = Arc::new(UnavailableAsr::default());
         Self::with_components(config, sink, llm, asr)
     }
@@ -415,6 +478,26 @@ impl JarvisEngine {
             _ => None,
         };
 
+        let memory = match (&config.storage_key_b64, &config.memory_path) {
+            (Some(encoded), Some(path)) => {
+                use base64::Engine as _;
+                match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                    Ok(key) => match MemoryStore::open(&key, PathBuf::from(path)) {
+                        Ok(store) => Some(Arc::new(store)),
+                        Err(error) => {
+                            tracing::warn!(%error, "local memory disabled: cannot open the journal");
+                            None
+                        }
+                    },
+                    Err(error) => {
+                        tracing::warn!(%error, "local memory disabled: invalid storage key");
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
         let mut ring = AudioRing::new(crate::audio::RING_CAPACITY);
         let ingress = ring.ingress();
         let consumer = ring
@@ -436,6 +519,7 @@ impl JarvisEngine {
             dispatcher: Mutex::new(None),
             audio_tx: Mutex::new(None),
             storage,
+            memory,
             last_reply: Mutex::new(String::new()),
         });
 
@@ -518,6 +602,17 @@ impl JarvisEngine {
     }
 
     pub fn submit_text(&self, text: &str) -> Result<()> {
+        self.submit(text, None)
+    }
+
+    /// Submit a user turn with the host's verified self-model as a system
+    /// message. Unlike the old prompt string, the preamble is not stored as part
+    /// of the turn or local memory.
+    pub fn submit_turn(&self, text: &str, preamble: &str) -> Result<()> {
+        self.submit(text, Some(preamble))
+    }
+
+    fn submit(&self, text: &str, preamble: Option<&str>) -> Result<()> {
         let text = text.trim().to_string();
         if text.is_empty() {
             return Err(JarvisError::InvalidArgument("empty prompt".into()));
@@ -525,9 +620,13 @@ impl JarvisEngine {
         if !self.inner.running.load(Ordering::SeqCst) {
             return Err(JarvisError::NotConfigured("engine not started".into()));
         }
+        let preamble = preamble
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
         let inner = self.inner.clone();
         self.runtime.spawn(async move {
-            inner.run_turn(text).await;
+            inner.run_turn(text, preamble).await;
         });
         Ok(())
     }
@@ -580,6 +679,13 @@ impl JarvisEngine {
             ok,
             latency_ms,
         });
+        let memory_text = if ok {
+            format!("{tool} succeeded")
+        } else {
+            format!("{tool} failed: {}", result.chars().take(200).collect::<String>())
+        };
+        self.inner
+            .remember(RememberRequest::tool(tool, memory_text, ok));
         self.inner.log_record(serde_json::json!({
             "t": unix_time(),
             "role": "tool",
@@ -589,6 +695,21 @@ impl JarvisEngine {
             "ok": ok,
             "latency_ms": latency_ms,
         }));
+    }
+
+    /// Versioned JSON command channel for local memory (and later goals).
+    pub fn invoke(&self, request: &str) -> String {
+        match &self.inner.memory {
+            Some(memory) => memory.invoke(request),
+            None => serde_json::json!({
+                "ok": false,
+                "error": {
+                    "kind": "notConfigured",
+                    "detail": "Local memory is not enabled for this engine."
+                }
+            })
+            .to_string(),
+        }
     }
 
     pub fn last_reply(&self) -> String {
@@ -682,8 +803,10 @@ fn audio_loop(inner: Arc<Inner>, mut consumer: rtrb::Consumer<f32>) {
 mod tests {
     use super::*;
     use crate::audio::FRAME_SAMPLES;
-    use crate::llm::ScriptedBackend;
+    use crate::llm::{LlmBackend, Role, ScriptedBackend};
     use crate::session::SessionState;
+    use async_trait::async_trait;
+    use tokio_util::sync::CancellationToken;
 
     struct Capture {
         events: Mutex<Vec<EngineEvent>>,
@@ -830,5 +953,162 @@ mod tests {
             .iter()
             .any(|e| matches!(e, EngineEvent::Engine { running: false })));
         assert!(engine.submit_text("hello").is_err());
+    }
+
+    fn memory_key() -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode([7u8; 32])
+    }
+
+    fn memory_config(dir: &tempfile::TempDir) -> EngineConfig {
+        EngineConfig {
+            backend: BackendKind::None,
+            storage_key_b64: Some(memory_key()),
+            memory_path: Some(dir.path().join("memory.enc").to_string_lossy().into_owned()),
+            ..EngineConfig::default()
+        }
+    }
+
+    struct RecordingBackend {
+        seen: Arc<Mutex<Vec<Vec<ChatMessage>>>>,
+    }
+
+    #[async_trait]
+    impl LlmBackend for RecordingBackend {
+        async fn stream_chat(
+            &self,
+            messages: Vec<ChatMessage>,
+            _cancel: CancellationToken,
+        ) -> Result<DeltaStream> {
+            self.seen.lock().push(messages);
+            let stream = futures::stream::once(async {
+                let item: Result<LlmDelta> = Ok(LlmDelta::Done {
+                    finish_reason: Some("stop".into()),
+                });
+                item
+            });
+            Ok(Box::pin(stream))
+        }
+
+        fn name(&self) -> &'static str {
+            "recording"
+        }
+    }
+
+    #[test]
+    fn keyless_engine_starts_and_reports_a_typed_error() {
+        let capture = Arc::new(Capture {
+            events: Mutex::new(Vec::new()),
+        });
+        let engine = JarvisEngine::new(
+            EngineConfig {
+                backend: BackendKind::None,
+                ..EngineConfig::default()
+            },
+            capture.clone(),
+        )
+        .unwrap();
+        engine.start().unwrap();
+        engine.submit_text("hello").unwrap();
+        assert!(wait_for(&capture, |e| matches!(
+            e,
+            EngineEvent::Error { error } if matches!(error, JarvisError::NotConfigured(_))
+        )));
+        engine.stop();
+    }
+
+    #[test]
+    fn keyless_engine_records_a_turn_in_local_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture {
+            events: Mutex::new(Vec::new()),
+        });
+        let engine = JarvisEngine::new(memory_config(&dir), capture.clone()).unwrap();
+        engine.start().unwrap();
+        engine
+            .submit_text("the reactor needs a coolant check")
+            .unwrap();
+        assert!(wait_for(&capture, |e| matches!(e, EngineEvent::Error { .. })));
+        let listed = engine.invoke(r#"{"op":"memory.list"}"#);
+        assert!(listed.contains("\"ok\":true"), "{listed}");
+        assert!(listed.contains("coolant check"), "{listed}");
+        engine.stop();
+    }
+
+    #[test]
+    fn relevant_memory_is_injected_into_the_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture {
+            events: Mutex::new(Vec::new()),
+        });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let backend = Arc::new(RecordingBackend { seen: seen.clone() });
+        let engine = JarvisEngine::with_components(
+            memory_config(&dir),
+            capture.clone(),
+            backend,
+            Arc::new(UnavailableAsr::default()),
+        )
+        .unwrap();
+        engine.start().unwrap();
+        let added = engine.invoke(
+            r#"{"op":"memory.add","kind":"preference","text":"Lester prefers brief answers","userApproved":true}"#,
+        );
+        assert!(added.contains("\"ok\":true"), "{added}");
+        engine
+            .submit_text("Lester, how long should the answer be?")
+            .unwrap();
+        assert!(wait_for(&capture, |e| matches!(
+            e,
+            EngineEvent::AssistantDone { .. }
+        )));
+        let seen = seen.lock();
+        let messages = seen.first().expect("backend was not called");
+        assert_eq!(messages[0].role, Role::System);
+        assert!(
+            messages[0].content.contains("brief answers"),
+            "{:?}",
+            messages[0].content
+        );
+        engine.stop();
+    }
+
+    #[test]
+    fn host_preamble_is_a_system_message_not_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture {
+            events: Mutex::new(Vec::new()),
+        });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let backend = Arc::new(RecordingBackend { seen: seen.clone() });
+        let engine = JarvisEngine::with_components(
+            memory_config(&dir),
+            capture.clone(),
+            backend,
+            Arc::new(UnavailableAsr::default()),
+        )
+        .unwrap();
+        engine.start().unwrap();
+        engine
+            .submit_turn("check the coolant", "VERIFIED SELF MODEL")
+            .unwrap();
+        assert!(wait_for(&capture, |e| matches!(
+            e,
+            EngineEvent::AssistantDone { .. }
+        )));
+        let seen = seen.lock();
+        let messages = seen.first().expect("backend was not called");
+        assert_eq!(messages[0].role, Role::System);
+        assert!(messages[0].content.contains("VERIFIED SELF MODEL"));
+        let user = messages
+            .iter()
+            .find(|message| message.role == Role::User)
+            .expect("user turn missing");
+        assert_eq!(user.content, "check the coolant");
+        drop(seen);
+        let listed = engine.invoke(r#"{"op":"memory.list"}"#);
+        assert!(listed.contains("check the coolant"), "{listed}");
+        assert!(!listed.contains("VERIFIED SELF MODEL"), "{listed}");
+        engine.stop();
     }
 }

@@ -18,10 +18,9 @@ default = ["jni-bridge"]
 jni-bridge = ["dep:jni"]
 # On-device Whisper transcription. Requires an NDK toolchain and a ggml model.
 whisper = ["dep:whisper-rs"]
-# Reserved integration points. These are deliberately not compiled by default; see
-# README "Engine status" and DESIGN.md. They add native build systems (llama.cpp,
-# onnxruntime) that cannot be produced on a machine without the NDK.
-local-llm = []
+# Optional on-device GGUF reasoning through llama.cpp. This pulls in a C/C++
+# build; see docs/OFFLINE_BUILD.md. Not compiled by default.
+local-llm = ["dep:llama-cpp-2"]
 local-tts = []
 silero-vad = []
 
@@ -44,6 +43,7 @@ base64 = "0.23"
 tracing = "0.1"
 jni = { version = "0.21", optional = true }
 whisper-rs = { version = "0.16", optional = true }
+llama-cpp-2 = { version = "0.1.161", optional = true }
 
 [dev-dependencies]
 criterion = "0.8"

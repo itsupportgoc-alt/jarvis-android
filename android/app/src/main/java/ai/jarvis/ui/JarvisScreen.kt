@@ -188,7 +188,8 @@ fun JarvisScreen(controller: JarvisController) {
                         )
                         if (ui.needsSetup) {
                             Text(
-                                text = "Awaiting credentials. Add a key for $activeProviderLabel in Settings.",
+                                text = "Reasoning is not configured. Add a key for $activeProviderLabel in " +
+                                    "Settings; memory and device tools work without one.",
                                 style = MonoSmall,
                                 color = JarvisMuted,
                                 modifier = Modifier.padding(top = 8.dp),

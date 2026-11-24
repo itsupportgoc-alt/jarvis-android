@@ -47,6 +47,31 @@ if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
 fi
 note "NDK: $NDK"
 
+# Optional llama.cpp cross-build (local-llm). The default app does not need
+# CMake, but Phase 3's backend does. Check both a PATH install and the SDK's
+# cmake package without failing the normal setup path.
+CMAKE_FOUND=0
+if command -v cmake >/dev/null 2>&1 && command -v ninja >/dev/null 2>&1; then
+    note "CMake: $(command -v cmake); Ninja: $(command -v ninja)"
+    CMAKE_FOUND=1
+else
+    for candidate in "$SDK"/cmake/*/bin; do
+        if [ -x "$candidate/cmake" ] || [ -x "$candidate/cmake.exe" ]; then
+            note "CMake/Ninja (SDK): $candidate"
+            CMAKE_FOUND=1
+        fi
+    done
+fi
+if [ "$CMAKE_FOUND" -eq 0 ]; then
+    note "CMake/Ninja not found: local-llm needs sdkmanager 'cmake;3.31.6' (see docs/OFFLINE_BUILD.md)"
+fi
+LIBCLANG_CANDIDATE="${LIBCLANG_PATH:-$ROOT/android/.tools/libclang/clang/native}"
+if [ -d "$LIBCLANG_CANDIDATE" ]; then
+    note "libclang: $LIBCLANG_CANDIDATE"
+else
+    note "libclang not found: local-llm needs 'python -m pip install --target android/.tools/libclang libclang'"
+fi
+
 # local.properties wants forward slashes on every host.
 SDK_FORWARD="$(printf '%s' "$SDK" | sed 's#\\#/#g')"
 printf 'sdk.dir=%s\n' "$SDK_FORWARD" > "$ROOT/android/local.properties"

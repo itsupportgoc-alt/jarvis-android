@@ -5,9 +5,9 @@
 //! machine. Kotlin owns Android: permissions, the foreground service, the
 //! device-tool registry and Compose UI.
 //!
-//! The crate is split so the control plane compiles and tests on any host. Only
-//! the optional `whisper` feature and the Android JNI target pull in native
-//! toolchains.
+//! The crate is split so the control plane compiles and tests on any host. The
+//! optional `whisper` and `local-llm` features pull in native C/C++ toolchains;
+//! see `docs/OFFLINE_BUILD.md` for the Android llama.cpp build.
 
 #![deny(clippy::undocumented_unsafe_blocks)]
 
@@ -17,6 +17,7 @@ pub mod engine;
 pub mod error;
 pub mod events;
 pub mod llm;
+pub mod memory;
 pub mod metrics;
 pub mod sentence;
 pub mod session;

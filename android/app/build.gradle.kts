@@ -113,11 +113,16 @@ fun freebuffApiKey(): String {
  * expects them.
  *
  * Reproducible invocation (what this task runs):
- *   cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 \
+ *   cargo ndk -P 29 -t arm64-v8a -t armeabi-v7a -t x86_64 \
  *       -o android/app/src/main/jniLibs build --release
+ *
+ * API 29 is explicit because NDK r26 only declares posix_madvise() from API 23;
+ * the default API 21 would break the optional llama.cpp backend. The app's
+ * minSdk is already 29.
  *
  * Prerequisites (see setup.sh): rustup targets, cargo-ndk 4.x, NDK r26+ and
  * ANDROID_NDK_HOME. Pass -PskipRust to assemble the Kotlin side alone.
+ * The optional local-llm proof build is documented in docs/OFFLINE_BUILD.md.
  */
 val coreDir = rootProject.projectDir.parentFile.resolve("core")
 val jniLibsDir = projectDir.resolve("src/main/jniLibs")
@@ -135,6 +140,7 @@ val cargoNdkBuild by tasks.registering(Exec::class) {
     environment("ANDROID_NDK_HOME", ndkHome ?: "")
     commandLine(
         "cargo", "ndk",
+        "-P", "29",
         "-t", "arm64-v8a",
         "-t", "armeabi-v7a",
         "-t", "x86_64",

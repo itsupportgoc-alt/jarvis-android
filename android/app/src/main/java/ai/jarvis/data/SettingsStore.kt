@@ -368,8 +368,8 @@ data class JarvisSettings(
     val githubToken: String = "",
     val githubOwner: String = "",
     val githubRepo: String = "",
-    /** Save conversation memory online. On unless the user turns it off. */
-    val autoSync: Boolean = true,
+    /** Mirror conversation turns to GitHub. Off by default; local memory is primary. */
+    val autoSync: Boolean = false,
 ) {
     companion object {
         /** Freebuff's OpenAI-compatible API is the default endpoint. */
@@ -424,7 +424,7 @@ class SettingsStore(
             githubToken = prefs.getString("github_token", "") ?: "",
             githubOwner = prefs.getString("github_owner", "") ?: "",
             githubRepo = prefs.getString("github_repo", "") ?: "",
-            autoSync = prefs.getBoolean("github_auto_sync", true),
+            autoSync = prefs.getBoolean("github_auto_sync", false),
         )
     }
 

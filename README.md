@@ -31,15 +31,16 @@ is built, and what was verified on the authoring machine:
 
 | Piece | State | Verified here |
 |---|---|---|
-| Rust control plane (session machine, sentence chunker, SSE parser, tool-call assembly, mood tags, VAD, ring buffer, encrypted store, viseme DSP) | Implemented | `cargo test` (77 tests), `cargo clippy -D warnings`, `cargo bench`; cross-compiled to all 3 ABIs |
+| Rust control plane (session machine, sentence chunker, SSE parser, tool-call assembly, mood tags, VAD, ring buffer, encrypted store, encrypted memory, viseme DSP) | Implemented | `cargo test` (94 tests), `cargo clippy -D warnings`, `cargo bench`; cross-compiled to all 3 ABIs |
 | Remote reasoning (OpenAI-compatible SSE, model fallback, cancellation) | Implemented | Parser + request tests; no live API call |
+| Local memory + keyless start (AES-256-GCM journal, approval policy, Settings review/export) | Implemented | Rust + JVM tests; no device run |
 | JNI boundary (`catch_unwind`, typed codes, lock-free PCM push) | Implemented | Compiles on host; only runs in a JVM |
-| Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; 4 JVM tests |
-| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 32 MB debug APK with arm64/armv7/x86_64 `.so` |
+| Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; 41 JVM tests |
+| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 37.6 MB debug APK with arm64/armv7/x86_64 `.so` |
 | Voice input | Android `SpeechRecognizer` (offline-preferred) ships and works; Rust Whisper path is feature-gated | Not run on a device here |
 | Android TTS | Implemented, sentence-streamed, ducking, real word timings for visemes | Not run on a device here |
 | **Wake word** | **Not compiled.** Interface + openWakeWord pipeline documented; model download provided | — |
-| **Local Qwen (GGUF)** | **Not implemented.** `LlmBackend` seam + model download only | — |
+| **Local Qwen (GGUF)** | **Backend compiled; not wired into the engine or UI.** `QwenLocal` behind `local-llm` | Cross-compiled for arm64/armv7/x86_64; no model loaded or inference run |
 | **Piper / sherpa-onnx TTS** | **Not compiled.** `TtsEngine` seam + Piper model download only | — |
 | Device latency budget (wake/ASR/TTS/end-to-end) | Instrumented, not measured on hardware | — |
 
@@ -271,21 +272,24 @@ ONNX Runtime for Android. That runtime must be cross-compiled with the NDK,
 which the authoring machine could not do. Until then, use MIC (push-to-talk) and
 the foreground service's standby mode. This is the largest gap in the brief.
 
-### Local Qwen, Piper / sherpa-onnx (not compiled)
+### Local Qwen, Piper / sherpa-onnx
 
-`LlmBackend` and `TtsEngine` are the seams. Qwen GGUF (`llama-cpp-2 0.1.x`) and
-Piper (`sherpa-onnx` 2.0.x) both require native build systems that were not
-available here. `QwenLocal` is therefore **not implemented** (not silently
-stubbed): configuring `backend: local` is not accepted by the engine. Models are
-downloadable for the feature work.
+`LlmBackend` and `TtsEngine` are the seams. `QwenLocal` (`llama-cpp-2 0.1.161`)
+now exists behind the `local-llm` feature and its native llama.cpp dependency
+has been cross-compiled for arm64-v8a, armeabi-v7a and x86_64. It is **not wired
+into `EngineConfig` yet**, so `backend: local` is still rejected by the engine
+and no model has been loaded on a device. See
+[docs/OFFLINE_BUILD.md](docs/OFFLINE_BUILD.md) for the exact CMake/Ninja/libclang
+recipe and the three-ABI proof. Piper (`sherpa-onnx`) remains not compiled.
 
 ## Testing
 
 ```bash
-core:   cargo test        # 77 unit/integration tests
+core:   cargo test        # 94 unit/integration tests
         cargo clippy --all-targets -- -D warnings
         cargo bench --bench latency
-android: ./android/gradlew -p android testDebugUnitTest   # 4 tests: tool contracts
+        # optional local-llm three-ABI proof: docs/OFFLINE_BUILD.md
+android: ./android/gradlew -p android testDebugUnitTest   # 41 tests: tools, identity, self-model prompt, memory JSON
         java -jar ktlint.jar "app/src/main/java/**/*.kt"
 ```
 
@@ -296,7 +300,11 @@ Demo script: [DEMO.md](DEMO.md).
 
 ## Security and privacy
 
-* API key: Keystore-encrypted; never logged.
+* API key: Keystore-encrypted; never logged. It is optional: the engine starts
+  keyless and reports reasoning as not configured.
+* Local memory: AES-256-GCM journal with per-line AAD, app-private storage,
+  user-approved permanent records, and no automatic secret capture. See
+  [docs/MEMORY_SECURITY.md](docs/MEMORY_SECURITY.md).
 * Transcript and tool traces: AES-256-GCM records, one per line, key wrapped by
   the Keystore; tampering fails authentication (tested).
 * Tool traces are shown in Settings and capped at 80 in memory.
@@ -306,7 +314,8 @@ Demo script: [DEMO.md](DEMO.md).
 
 ## Limitations worth stating plainly
 
-* Wake word, local Qwen and local Piper are not in this build (see above).
+* Wake word and local Piper are not in this build. Local Qwen's native backend
+  compiles for all three ABIs but is not wired into the engine or UI yet.
 * Device-side latency figures (wake, ASR RTF, TTS first audio, end-to-end) and
   the 60 fps/jank checks require hardware; they are instrumented but unmeasured.
 * The system recogniser may use the network on some devices; the offline Whisper

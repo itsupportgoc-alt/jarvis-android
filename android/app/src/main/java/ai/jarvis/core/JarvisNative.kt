@@ -41,6 +41,12 @@ object JarvisNative {
         text: String,
     ): Int
 
+    external fun nativeSubmitTurn(
+        handle: Long,
+        text: String,
+        preamble: String,
+    ): Int
+
     external fun nativeSubmitToolResult(
         handle: Long,
         toolCallId: String,
@@ -53,6 +59,15 @@ object JarvisNative {
         handle: Long,
         samples: FloatArray,
     )
+
+    /**
+     * Versioned JSON command channel (local memory now, goals/reflection later).
+     * Returns an `{ok, data|error}` object and never throws for a bad request.
+     */
+    external fun nativeInvoke(
+        handle: Long,
+        requestJson: String,
+    ): String
 
     external fun nativeRecordToolTrace(
         handle: Long,

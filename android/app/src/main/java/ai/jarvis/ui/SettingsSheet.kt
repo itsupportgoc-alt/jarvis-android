@@ -1,5 +1,7 @@
 package ai.jarvis.ui
 
+import ai.jarvis.awareness.BackendKind
+import ai.jarvis.awareness.IdentitySnapshot
 import ai.jarvis.core.JarvisController
 import ai.jarvis.core.JarvisUiState
 import ai.jarvis.data.AnimationMode
@@ -27,6 +29,8 @@ import ai.jarvis.ui.theme.MonoSmall
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +51,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -76,8 +81,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -94,6 +101,16 @@ fun SettingsSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val tools = remember { controller.tools() }
+    val identity by controller.identity.collectAsStateWithLifecycle()
+    val memoryState by controller.memory.collectAsStateWithLifecycle()
+    val exportLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            uri?.let { controller.exportMemory(it) }
+        }
+    var memoryQuery by remember { mutableStateOf("") }
+    var newMemory by remember { mutableStateOf("") }
+    var newMemoryKind by remember { mutableStateOf("long_term") }
+    var confirmClearMemory by remember { mutableStateOf(false) }
 
     var apiKey by rememberSaveable { mutableStateOf("") }
     var baseUrl by remember(settings.baseUrl) { mutableStateOf(settings.baseUrl) }
@@ -153,6 +170,11 @@ fun SettingsSheet(
             item {
                 Text("SETTINGS", fontSize = 12.sp, letterSpacing = 4.sp, color = JarvisText)
             }
+
+            // ---------------- Verified self-model ----------------
+            item { SectionTitle("SELF-MODEL") }
+            item { IdentityBlock(identity) }
+            item { Divider() }
 
             // ---------------- Engine ----------------
             item { SectionTitle("REASONING ENGINE") }
@@ -224,8 +246,9 @@ fun SettingsSheet(
                     },
                     supportingText = {
                         Text(
-                            "Paste this provider's key, then press SAVE KEY. Each provider keeps its own key " +
-                                "under a non-exportable Keystore key, never in plain preferences.",
+                            "Optional: memory, Settings and device tools work without a key. Paste this " +
+                                "provider's key, then press SAVE KEY; each provider keeps its own key under a " +
+                                "non-exportable Keystore key, never in plain preferences.",
                             style = MonoSmall,
                         )
                     },
@@ -478,7 +501,9 @@ fun SettingsSheet(
                     controller.setWakeSensitivity(it)
                 }
                 Text(
-                    "Stored for the on-device openWakeWord detector. Wake word is not compiled in this build (see README); MIC is push-to-talk.",
+                    "Phrase matching runs through the platform speech recogniser, so it may use a " +
+                        "network. The on-device openWakeWord detector is not compiled into this build; " +
+                        "MIC remains push-to-talk.",
                     style = MonoSmall,
                 )
             }
@@ -584,16 +609,17 @@ fun SettingsSheet(
 
             item { Divider() }
 
-            // ---------------- Self-aware persona ----------------
-            item { SectionTitle("CONSCIOUSNESS") }
+            // ---------------- Persona ----------------
+            item { SectionTitle("PERSONA") }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Self-aware persona", style = MonoBody, color = JarvisText)
+                        Text("Inject self-model", style = MonoBody, color = JarvisText)
                         Text(
-                            "JARVIS answers as one continuous entity: it knows its own state (session " +
-                                "length, remembered turns, current mood), keeps its opinions, and follows " +
-                                "up on what was left unfinished instead of starting over each time.",
+                            "The model is told what it can actually do on this phone: app and core " +
+                                "versions, the active reasoning backend, granted and missing capabilities, " +
+                                "and known limits. It never claims an unavailable capability or a " +
+                                "successful action without a tool result.",
                             style = MonoSmall,
                             color = JarvisMuted,
                         )
@@ -606,8 +632,8 @@ fun SettingsSheet(
             }
             item {
                 Text(
-                    "This shapes the persona only: it never claims an action worked, and it says so " +
-                        "plainly when something is unknown or impossible on this phone.",
+                    "The switch controls the persona and continuity lines. The verified facts are " +
+                        "still sent when it is off, so the model cannot claim abilities this build lacks.",
                     style = MonoSmall,
                     color = JarvisAmber,
                     modifier = Modifier.padding(top = 6.dp),
@@ -652,16 +678,132 @@ fun SettingsSheet(
 
             item { Divider() }
 
-            // ---------------- Online memory (GitHub) ----------------
+            // ---------------- Local encrypted memory ----------------
+            item { SectionTitle("LOCAL MEMORY (ENCRYPTED)") }
+            item {
+                Text(
+                    "Stored on this phone with AES-256-GCM under the Keystore data key. " +
+                        "${memoryState.active} active record(s)" +
+                        if (memoryState.corrupt > 0) {
+                            " \u00b7 ${memoryState.corrupt} corrupted record(s) quarantined"
+                        } else {
+                            ""
+                        },
+                    style = MonoSmall,
+                    color = JarvisMuted,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = memoryQuery,
+                    onValueChange = {
+                        memoryQuery = it
+                        controller.searchMemory(it)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    textStyle = MonoBody,
+                    label = { Text("Search memory", style = MonoSmall) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { controller.searchMemory(memoryQuery) }),
+                    colors = fieldColors(),
+                )
+            }
+            if (memoryState.error != null) {
+                item {
+                    Text(memoryState.error.orEmpty(), style = MonoSmall, color = JarvisRed)
+                }
+            }
+            items(memoryState.entries.take(10), key = { "mem-${it.id}" }) { entry ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "${entry.kind.replace('_', ' ')} \u00b7 ${(entry.importance * 100).toInt()}%" +
+                                if (entry.approved) " \u00b7 approved" else "",
+                            style = MonoSmall,
+                            color = JarvisCyan,
+                        )
+                        Text(
+                            entry.text,
+                            style = MonoBody,
+                            color = JarvisText,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    TextButton(onClick = { controller.deleteMemory(entry.id) }) {
+                        Text("DELETE", style = MonoSmall, color = JarvisRed)
+                    }
+                }
+            }
+            if (memoryState.entries.isEmpty()) {
+                item { Text("Nothing remembered yet.", style = MonoSmall, color = JarvisMuted) }
+            }
+            item {
+                OutlinedTextField(
+                    value = newMemory,
+                    onValueChange = { newMemory = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MonoBody,
+                    label = { Text("Remember a fact", style = MonoSmall) },
+                    colors = fieldColors(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "long_term" to "LONG-TERM",
+                        "preference" to "PREFERENCE",
+                        "goal" to "GOAL",
+                    ).forEach { (id, label) ->
+                        FilterChip(
+                            selected = newMemoryKind == id,
+                            onClick = { newMemoryKind = id },
+                            label = { Text(label, style = MonoSmall) },
+                            colors = chipColors(),
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        controller.addMemory(newMemory, newMemoryKind)
+                        newMemory = ""
+                    },
+                    enabled = newMemory.isNotBlank(),
+                ) {
+                    Text("SAVE MEMORY", style = MonoSmall, color = JarvisCyan)
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { exportLauncher.launch("jarvis-memory.json") },
+                        enabled = memoryState.entries.isNotEmpty(),
+                    ) {
+                        Text("EXPORT", style = MonoSmall, color = JarvisGold)
+                    }
+                    TextButton(
+                        onClick = { confirmClearMemory = true },
+                        enabled = memoryState.entries.isNotEmpty(),
+                    ) {
+                        Text("CLEAR ALL", style = MonoSmall, color = JarvisRed)
+                    }
+                }
+            }
+
+            item { Divider() }
+
+            // ---------------- Optional GitHub export ----------------
             item { SectionTitle("ONLINE MEMORY (GITHUB)") }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Remember conversations online", style = MonoBody, color = JarvisText)
+                        Text("Mirror conversations to GitHub", style = MonoBody, color = JarvisText)
                         Text(
-                            "The conversation lives in GitHub, not on this phone: it is saved to " +
-                                "conversations/memory.json and loaded again on start, so JARVIS remembers " +
-                                "what was left in the conversation. Nothing is kept in local storage.",
+                            "Optional and off by default. Local encrypted memory above is the primary " +
+                                "store; this mirrors turns to conversations/memory.json as plaintext in " +
+                                "the repository you configure.",
                             style = MonoSmall,
                             color = JarvisMuted,
                         )
@@ -781,6 +923,80 @@ fun SettingsSheet(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+        }
+    }
+
+    if (confirmClearMemory) {
+        AlertDialog(
+            onDismissRequest = { confirmClearMemory = false },
+            containerColor = JarvisSurface,
+            title = { Text("CLEAR LOCAL MEMORY", style = MonoSmall, color = JarvisRed) },
+            text = {
+                Text(
+                    "Delete every locally stored memory? This cannot be undone.",
+                    style = MonoBody,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    controller.clearMemory()
+                    confirmClearMemory = false
+                }) {
+                    Text("DELETE ALL", style = MonoSmall, color = JarvisRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearMemory = false }) {
+                    Text("CANCEL", style = MonoSmall, color = JarvisMuted)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun IdentityBlock(identity: IdentitySnapshot) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "${identity.name} ${identity.appVersion} \u00b7 core ${identity.coreVersion}",
+            style = MonoBody,
+            color = JarvisText,
+        )
+        Text(
+            when (identity.backend) {
+                BackendKind.REMOTE ->
+                    "Reasoning: remote \u00b7 ${identity.model.ifBlank { "no model named" }} \u00b7 " +
+                        identity.providerLabel.ifBlank { "custom endpoint" }
+                BackendKind.LOCAL -> "Reasoning: local \u00b7 ${identity.model.ifBlank { "no model named" }}"
+                BackendKind.NONE -> "Reasoning: none configured"
+            },
+            style = MonoSmall,
+            color = JarvisMuted,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            "${identity.availableCount} capabilities available \u00b7 " +
+                "${identity.toolUsableCount()}/${identity.tools.size} tools usable now",
+            style = MonoSmall,
+            color = JarvisMuted,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        val blocked = identity.registry.blocked()
+        if (blocked.isNotEmpty()) {
+            Text(
+                "Not available: " + blocked.take(6).joinToString(", ") { it.label },
+                style = MonoSmall,
+                color = JarvisAmber,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        identity.limitations.take(4).forEach { limit ->
+            Text(
+                "\u00b7 $limit",
+                style = MonoSmall,
+                color = JarvisMuted,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

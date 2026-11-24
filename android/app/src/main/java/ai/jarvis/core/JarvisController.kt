@@ -4,6 +4,10 @@ import ai.jarvis.BuildConfig
 import ai.jarvis.audio.AudioCapture
 import ai.jarvis.audio.VoiceEngine
 import ai.jarvis.audio.VoiceInput
+import ai.jarvis.awareness.AwarenessRepository
+import ai.jarvis.awareness.BackendKind
+import ai.jarvis.awareness.EngineFacts
+import ai.jarvis.awareness.IdentitySnapshot
 import ai.jarvis.data.AnimationMode
 import ai.jarvis.data.ConversationMemory
 import ai.jarvis.data.GithubPusher
@@ -15,6 +19,9 @@ import ai.jarvis.data.VoiceInputMode
 import ai.jarvis.data.VoicePreset
 import ai.jarvis.data.presetFor
 import ai.jarvis.data.providerIdFor
+import ai.jarvis.data.providerPresetFor
+import ai.jarvis.memory.MemoryManager
+import ai.jarvis.memory.MemoryState
 import ai.jarvis.permissions.Permissions
 import ai.jarvis.service.JarvisService
 import ai.jarvis.tools.CapabilityStatus
@@ -25,6 +32,7 @@ import ai.jarvis.tools.UndoAction
 import ai.jarvis.util.Haptics
 import android.Manifest
 import android.app.Application
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
@@ -115,13 +123,14 @@ class JarvisController(
     private val settingsStore = SettingsStore(app)
     private val secure = SecureStore(app)
     private val registry = ToolRegistry(app)
+    private val awareness = AwarenessRepository(app, registry)
     private val haptics = Haptics(app)
     private val lineIds = AtomicLong(1)
     private val conversationMemory: ConversationMemory = ConversationMemory()
 
     init {
-        // Conversation memory is stored online, in the GitHub repo the user
-        // configured; nothing is written to local storage.
+        // Encrypted local memory is the primary store (Rust). ConversationMemory
+        // remains an optional, off-by-default GitHub export.
         conversationMemory.setAutoPush(settingsStore.current.autoSync)
         conversationMemory.configure(
             settingsStore.current.githubToken,
@@ -144,6 +153,11 @@ class JarvisController(
     @Volatile
     private var handle: Long = 0L
     private var engineStarted = false
+
+    private val memoryManager = MemoryManager { handle }
+
+    /** Encrypted local memory, owned by the Rust engine. */
+    val memory: StateFlow<MemoryState> = memoryManager.state
     private var capture: AudioCapture? = null
     private var serviceRunning = false
 
@@ -199,23 +213,16 @@ class JarvisController(
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
                     // Recognition runs locally, so the transcript above is real
-                    // even before a key exists; only the answer needs the key.
-                    if (!ensureEngine()) {
-                        reportError(
-                            "I heard you, but no API key is set. Add your Freebuff key in Settings for an answer.",
-                        )
-                        return
-                    }
+                    // even before a key exists. The keyless engine records the
+                    // turn and returns a typed "not configured" error itself.
+                    ensureEngine()
                     val current = handle
                     if (current == 0L) {
                         reportError("The assistant engine is not ready.")
                         return
                     }
-                    // Built before the new turn is stored, so the model sees the
-                    // history once instead of the input twice.
-                    val prompt = promptFor(text)
                     conversationMemory.addUserMessage(text)
-                    val code = JarvisNative.nativeSubmitText(current, prompt)
+                    val code = JarvisNative.nativeSubmitTurn(current, text, preambleFor())
                     if (code != 0) reportError(codeMessage(code))
                 }
 
@@ -253,7 +260,16 @@ class JarvisController(
         seedBundledKey()
         applyVoiceSettings(settingsStore.current)
         ensureEngine()
+        refreshAwareness()
+        memoryManager.refresh()
     }
+
+    /**
+     * Verified self-model: versions, backend, capabilities and limits. The
+     * prompt, the Settings identity block and, later, the awareness surface
+     * read this same snapshot, so nothing can describe JARVIS two ways.
+     */
+    val identity: StateFlow<IdentitySnapshot> = awareness.identity
 
     /**
      * A build made with `-PfreebuffApiKey`, `FREEBUFF_API_KEY` or
@@ -282,10 +298,11 @@ class JarvisController(
     @Synchronized
     private fun ensureEngine(): Boolean {
         if (handle != 0L) return true
-        if (!secure.hasApiKey(activeProviderId)) {
-            _ui.update { it.copy(needsSetup = true) }
-            return false
-        }
+        // The engine no longer requires a key: local memory and device tools
+        // must work before one exists. A keyless engine selects no reasoning
+        // backend and reports that on any turn.
+        val hasKey = secure.hasApiKey(activeProviderId)
+        _ui.update { it.copy(needsSetup = !hasKey) }
         return try {
             val created =
                 JarvisNative.nativeCreate(
@@ -306,7 +323,8 @@ class JarvisController(
             }
             handle = created
             engineStarted = true
-            _ui.update { it.copy(needsSetup = false) }
+            _ui.update { it.copy(needsSetup = !hasKey) }
+            refreshAwareness()
             true
         } catch (error: Throwable) {
             Log.e(TAG, "engine create failed", error)
@@ -324,7 +342,9 @@ class JarvisController(
         capture = null
         if (current != 0L) runCatching { JarvisNative.nativeDestroy(current) }
         _ui.update { it.copy(needsSetup = !secure.hasApiKey(activeProviderId)) }
-        if (secure.hasApiKey(activeProviderId)) ensureEngine()
+        ensureEngine()
+        refreshAwareness()
+        memoryManager.refresh()
     }
 
     fun shutdown() {
@@ -336,6 +356,8 @@ class JarvisController(
         handle = 0L
         engineStarted = false
         if (current != 0L) runCatching { JarvisNative.nativeDestroy(current) }
+        memoryManager.shutdown()
+        refreshAwareness()
         scope.cancel()
     }
 
@@ -364,6 +386,8 @@ class JarvisController(
                     },
                 )
                 put("tools", registry.schemasJson())
+                put("backend", if (secure.hasApiKey(activeProviderId)) "remote" else "none")
+                put("memoryPath", File(app.filesDir, "jarvis/memory.enc").absolutePath)
                 put(
                     "vad",
                     JSONObject().apply {
@@ -409,6 +433,8 @@ class JarvisController(
                             partial = if (phase == Phase.LISTENING) it.partial else "",
                         )
                     }
+                    // Engine state is part of the self-model; refresh on transitions only.
+                    refreshAwareness()
                 }
 
                 "micAmplitude" -> {
@@ -463,11 +489,12 @@ class JarvisController(
                                 },
                         )
                     }
-                    // Save to conversation memory; it persists itself online
-                    // whenever GitHub sync is configured.
+                    // Conversation memory remains the optional GitHub export;
+                    // local encrypted memory is refreshed from the engine.
                     if (text.isNotBlank()) {
                         conversationMemory.addAssistantMessage(text)
                     }
+                    memoryManager.refresh()
                 }
 
                 "speak" -> {
@@ -538,11 +565,8 @@ class JarvisController(
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         Log.i(TAG, "command received: \"$trimmed\"")
-        if (!ensureEngine()) return
+        ensureEngine()
         appendLine(Speaker.USER, trimmed)
-        // Built before the new turn is stored, so the model sees the history
-        // once instead of the input twice.
-        val prompt = promptFor(trimmed)
         conversationMemory.addUserMessage(trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
         val current = handle
@@ -550,7 +574,7 @@ class JarvisController(
             reportError("The assistant engine is not ready.")
             return
         }
-        val code = JarvisNative.nativeSubmitText(current, prompt)
+        val code = JarvisNative.nativeSubmitTurn(current, trimmed, preambleFor())
         if (code != 0) reportError(codeMessage(code))
     }
 
@@ -691,6 +715,7 @@ class JarvisController(
         canAskAgain: Boolean = true,
     ) {
         _ui.update { it.copy(micPermissionNeeded = false, micBlocked = !granted && !canAskAgain) }
+        refreshAwareness()
         if (granted) {
             startListening()
         } else if (canAskAgain) {
@@ -819,6 +844,7 @@ class JarvisController(
                 )
             }
             result.undo?.let(::showUndo)
+            memoryManager.refresh()
         }
     }
 
@@ -915,6 +941,7 @@ class JarvisController(
             return false
         }
         settingsStore.setApiKeyPresent(secure.hasApiKey(activeProviderId))
+        refreshAwareness()
         // Creating the native engine parses config and touches the filesystem;
         // do it off the main thread so the sheet answers immediately.
         scope.launch(Dispatchers.IO) {
@@ -985,7 +1012,10 @@ class JarvisController(
 
     fun setAnimationMode(mode: AnimationMode) = settingsStore.setAnimationMode(mode)
 
-    fun setVoiceInput(mode: VoiceInputMode) = settingsStore.setVoiceInput(mode)
+    fun setVoiceInput(mode: VoiceInputMode) {
+        settingsStore.setVoiceInput(mode)
+        refreshAwareness()
+    }
 
     /**
      * Wake-word mode keeps the microphone open in the foreground service and
@@ -997,6 +1027,7 @@ class JarvisController(
             return
         }
         settingsStore.setWakeWordEnabled(enabled)
+        refreshAwareness()
         if (enabled) {
             runCatching { JarvisService.start(app) }
                 .onFailure { reportError("The wake word service could not start: ${it.message}") }
@@ -1018,30 +1049,91 @@ class JarvisController(
     fun setSelfAware(enabled: Boolean) = settingsStore.setSelfAware(enabled)
 
     /**
-     * The full prompt for one turn: who the assistant is (self-model and
-     * continuity), what was already said, then the new input. All of it is
-     * bounded, so a long history cannot crowd out the question.
+     * The full prompt for one turn: the verified self-model, what was already
+     * said, then the new input. All of it is bounded, so a long history cannot
+     * crowd out the question. Fresh facts are read here because connectivity and
+     * permissions can change between turns.
      */
-    private fun promptFor(input: String): String {
-        val parts = ArrayList<String>(3)
-        if (settingsStore.current.selfAware) {
-            parts.add(
-                Consciousness.preamble(
-                    now = System.currentTimeMillis(),
-                    sessionStartedAt = sessionStartedAt,
-                    rememberedMessages = conversationMemory.size,
-                    mood = _ui.value.mood,
-                    cloudBacked = conversationMemory.isCloudBacked,
-                    userName = "Lester",
+    /**
+     * The verified self-model, sent as a system message on each turn. It is
+     * deliberately not part of the user text: that would leak it into local
+     * memory and the conversation history.
+     */
+    private fun preambleFor(): String {
+        refreshAwareness()
+        return Consciousness.preamble(
+            identity = awareness.current,
+            uptimeMinutes =
+                ((System.currentTimeMillis() - sessionStartedAt).coerceAtLeast(0L) / 60_000L),
+            rememberedMessages = conversationMemory.size,
+            mood = _ui.value.mood,
+            persona = settingsStore.current.selfAware,
+        )
+    }
+
+    /**
+     * Rebuilds the verified self-model. Cheap enough for user-visible
+     * transitions and prompt assembly; never called from the audio path.
+     */
+    private fun refreshAwareness() {
+        val settings = settingsStore.current
+        awareness.refresh(
+            settings = settings,
+            hasApiKey = secure.hasApiKey(providerIdFor(settings.baseUrl)),
+            engine =
+                EngineFacts(
+                    created = handle != 0L,
+                    running = engineStarted,
+                    phase = _ui.value.phase.name.lowercase(),
+                    // The engine exists without a key; only a stored key selects
+                    // the remote backend. Phase 3 adds the local one.
+                    backend =
+                        when {
+                            handle == 0L -> BackendKind.NONE
+                            secure.hasApiKey(activeProviderId) -> BackendKind.REMOTE
+                            else -> BackendKind.NONE
+                        },
+                    providerLabel = providerPresetFor(settings.baseUrl)?.label ?: "a custom endpoint",
+                    model = settings.model,
                 ),
-            )
+            cloudMemoryConfigured =
+                settings.githubToken.isNotBlank() &&
+                    settings.githubOwner.isNotBlank() &&
+                    settings.githubRepo.isNotBlank(),
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // Encrypted local memory
+    // -----------------------------------------------------------------------
+
+    fun refreshMemory() = memoryManager.refresh()
+
+    fun searchMemory(query: String) = memoryManager.search(query)
+
+    fun addMemory(
+        text: String,
+        kind: String,
+    ) = memoryManager.add(text, kind)
+
+    fun deleteMemory(id: String) = memoryManager.delete(id)
+
+    fun clearMemory() = memoryManager.clear()
+
+    /** Writes the exported records to a file the user explicitly picked. */
+    fun exportMemory(uri: Uri) {
+        scope.launch {
+            val payload = withContext(Dispatchers.IO) { memoryManager.exportJson() }
+            val written =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        app.contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(payload.toByteArray(Charsets.UTF_8))
+                        } ?: error("the chosen file could not be opened")
+                    }
+                }
+            written.onFailure { reportError("Memory export failed: ${it.message}") }
         }
-        parts.add(CREATOR_HINT)
-        parts.add(INTERNET_HINT)
-        val remembered = conversationMemory.getConversationContext(5)
-        if (remembered.isNotBlank()) parts.add(remembered.trimEnd())
-        parts.add("Current input: $input")
-        return parts.joinToString("\n\n")
     }
 
     fun setAutoSendMessages(enabled: Boolean) {
@@ -1058,11 +1150,13 @@ class JarvisController(
     fun setGitHubConfig(token: String, owner: String, repo: String) {
         settingsStore.setGitHubConfig(token, owner, repo)
         conversationMemory.configure(token, owner, repo)
+        refreshAwareness()
     }
 
     fun setAutoSync(enabled: Boolean) {
         settingsStore.setAutoSync(enabled)
         conversationMemory.setAutoPush(enabled)
+        refreshAwareness()
     }
 
     fun testGitHubConnection() {
@@ -1148,21 +1242,5 @@ class JarvisController(
         const val LISTEN_RESTART_MAX_MS = 600L
         const val MAX_LISTEN_RESTARTS = 120
         const val FREEBUFF_PROVIDER_ID = "freebuff"
-
-        /** Always sent, even with the self-aware persona switched off. */
-        const val CREATOR_HINT =
-            "Your creator is John Lester Macabulos, who also goes by Lester. He built you and owns " +
-                "this phone. Address him as Lester, and if asked who made you, name him as your creator."
-
-        /**
-         * The system prompt lives in the prebuilt Rust library, so the internet
-         * policy is stated in the turn instead: the model must look facts up
-         * itself rather than sending the user to a browser.
-         */
-        const val INTERNET_HINT =
-            "You have live internet access through the web_search and read_page tools. " +
-                "For any question about facts, people, places, news or anything you are unsure of, " +
-                "call web_search first and answer from the results. Never tell the user to search " +
-                "or open a browser themselves."
     }
 }
