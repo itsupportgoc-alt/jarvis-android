@@ -366,7 +366,8 @@ data class JarvisSettings(
     val githubToken: String = "",
     val githubOwner: String = "",
     val githubRepo: String = "",
-    val autoSync: Boolean = false,
+    /** Save conversation memory online. On unless the user turns it off. */
+    val autoSync: Boolean = true,
 ) {
     companion object {
         /** Freebuff's OpenAI-compatible API is the default endpoint. */
@@ -416,6 +417,11 @@ class SettingsStore(
             wakeWordEnabled = prefs.getBoolean("wake_word_enabled", false),
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),
+            autoSendMessages = prefs.getBoolean("auto_send_messages", false),
+            githubToken = prefs.getString("github_token", "") ?: "",
+            githubOwner = prefs.getString("github_owner", "") ?: "",
+            githubRepo = prefs.getString("github_repo", "") ?: "",
+            autoSync = prefs.getBoolean("github_auto_sync", true),
         )
     }
 

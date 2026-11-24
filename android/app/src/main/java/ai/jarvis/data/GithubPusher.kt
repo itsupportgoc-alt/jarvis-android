@@ -99,6 +99,31 @@ class GithubPusher(
     }
 
     /**
+     * Read a file from the repo. Returns null when it is missing or unreadable.
+     */
+    fun fetchContent(path: String): String? {
+        return try {
+            val url = "$GITHUB_API/repos/$owner/$repo/contents/$path?ref=$branch"
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.setRequestProperty("User-Agent", "JARVIS-Android")
+
+            if (connection.responseCode !in 200..299) return null
+            val response =
+                BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+            // The content API returns the file Base64-encoded with line breaks.
+            val encoded = org.json.JSONObject(response).optString("content", "")
+            if (encoded.isBlank()) return null
+            String(Base64.getMimeDecoder().decode(encoded), Charsets.UTF_8)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch $path", e)
+            null
+        }
+    }
+
+    /**
      * Get the SHA of an existing file
      */
     private fun getFileSha(path: String): String? {

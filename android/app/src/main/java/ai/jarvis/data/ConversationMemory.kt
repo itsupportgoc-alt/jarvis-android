@@ -1,233 +1,256 @@
 package ai.jarvis.data
 
-import android.content.Context
-import android.util.Base64
 import android.util.Log
-import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /**
- * Local conversation memory that survives app restarts.
- * Stores messages in a transcript log file, with a separate JSON index for quick access.
+ * Cloud-backed conversation memory.
+ *
+ * Nothing is written to local storage. The transcript lives in RAM for the
+ * running app and is persisted to GitHub (`conversations/memory.json`) as soon
+ * as a token/owner/repo is configured, so JARVIS keeps its memory across
+ * restarts and devices. With GitHub unconfigured the memory lasts for the
+ * current session only.
  */
-class ConversationMemory(private val context: Context) {
-    private val logFile: File
-        get() = File(context.filesDir, "jarvis/transcript.log")
-
-    private val memoryIndexFile: File
-        get() = File(context.filesDir, "jarvis/memory_index.json")
-
+class ConversationMemory {
     data class MemoryEntry(
         val id: String,
         val speaker: String, // "user" or "assistant"
         val text: String,
-        val timestamp: Long = System.currentTimeMillis(),
-        val sessionId: String
+        val timestamp: Long,
+        val sessionId: String,
     )
 
     companion object {
         private const val TAG = "ConversationMemory"
-        private const val MAX_ENTRIES = 200
-        private const val SESSION_FILE = "jarvis/current_session.txt"
 
-        @JvmStatic
-        fun currentSessionId(ctx: Context): String {
-            val sessionFile = File(ctx.filesDir, SESSION_FILE)
-            if (sessionFile.exists()) {
-                return sessionFile.readText().trim()
-            }
-            val newSession = UUID.randomUUID().toString()
-            sessionFile.parentFile?.mkdirs()
-            sessionFile.writeText(newSession)
-            return newSession
-        }
+        /** Entries kept in RAM and in the pushed file. */
+        const val MAX_ENTRIES = 200
 
-        @JvmStatic
-        fun newSession(ctx: Context): String {
-            val sessionId = UUID.randomUUID().toString()
-            val sessionFile = File(ctx.filesDir, SESSION_FILE)
-            sessionFile.writeText(sessionId)
-            return sessionId
-        }
+        /** Characters of history handed to the model: roughly 750 tokens. */
+        private const val MAX_CONTEXT_CHARS = 3000
+
+        /** Per-turn truncation, so one long reply cannot eat the budget. */
+        private const val MAX_TURN_CHARS = 500
+
+        /** One API call is made after a burst of turns, not per turn. */
+        private const val PUSH_DEBOUNCE_MS = 1500L
+
+        const val REMOTE_PATH = "conversations/memory.json"
     }
 
-    fun addUserMessage(text: String): MemoryEntry {
-        val entry = MemoryEntry(
-            id = UUID.randomUUID().toString(),
-            speaker = "user",
-            text = text,
-            sessionId = currentSessionId(context)
-        )
-        appendToFile(entry)
+    private val entries = ArrayDeque<MemoryEntry>()
+    private val lock = Any()
+
+    @Volatile
+    private var sessionId: String = UUID.randomUUID().toString()
+
+    @Volatile
+    private var autoPush = true
+
+    @Volatile
+    private var pushQueued = false
+
+    private var pusher: GithubPusher? = null
+    private var configSignature: String = ""
+
+    private val worker =
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "jarvis-memory-sync").apply { isDaemon = true }
+        }
+
+    /** Session id written alongside the transcript. */
+    val session: String get() = sessionId
+
+    /**
+     * Point the memory at a GitHub repo. Blank values disable cloud storage and
+     * leave the transcript in RAM. Returns whether cloud storage is active.
+     */
+    fun configure(
+        token: String,
+        owner: String,
+        repo: String,
+    ): Boolean {
+        val usable = token.isNotBlank() && owner.isNotBlank() && repo.isNotBlank()
+        if (!usable) {
+            pusher = null
+            configSignature = ""
+            return false
+        }
+        val signature = "${token.trim()}|${owner.trim()}|${repo.trim()}"
+        if (signature == configSignature && pusher != null) return true
+        configSignature = signature
+        pusher = GithubPusher(token.trim(), owner.trim(), repo.trim())
+        loadFromCloud()
+        return true
+    }
+
+    /** Whether the transcript is being saved online. */
+    val isCloudBacked: Boolean get() = pusher != null
+
+    fun setAutoPush(enabled: Boolean) {
+        autoPush = enabled
+    }
+
+    /** Pull the saved transcript from GitHub into this session. */
+    fun loadFromCloud() {
+        if (pusher == null) return
+        worker.execute { pull() }
+    }
+
+    private fun pull() {
+        val client = pusher ?: return
+        val body = client.fetchContent(REMOTE_PATH)
+        if (body.isNullOrBlank()) return
+        val remote = parse(body)
+        if (remote.isEmpty()) return
+        synchronized(lock) {
+            if (entries.isEmpty()) {
+                entries.addAll(remote.takeLast(MAX_ENTRIES))
+            } else {
+                // Keep everything already said in this session and splice the
+                // older cloud turns in front of it.
+                val known = entries.mapTo(HashSet()) { it.id }
+                entries.addAll(0, remote.filter { it.id !in known })
+                while (entries.size > MAX_ENTRIES) entries.removeFirst()
+            }
+            remote.lastOrNull()?.sessionId?.takeIf { it.isNotBlank() }?.let { sessionId = it }
+        }
+        Log.i(TAG, "loaded ${remote.size} messages from GitHub")
+    }
+
+    fun addUserMessage(text: String): MemoryEntry = append("user", text)
+
+    fun addAssistantMessage(text: String): MemoryEntry = append("assistant", text)
+
+    private fun append(
+        speaker: String,
+        text: String,
+    ): MemoryEntry {
+        val entry =
+            MemoryEntry(
+                id = UUID.randomUUID().toString(),
+                speaker = speaker,
+                text = text,
+                timestamp = System.currentTimeMillis(),
+                sessionId = sessionId,
+            )
+        synchronized(lock) {
+            entries.addLast(entry)
+            while (entries.size > MAX_ENTRIES) entries.removeFirst()
+        }
+        schedulePush()
         return entry
     }
 
-    fun addAssistantMessage(text: String): MemoryEntry {
-        val entry = MemoryEntry(
-            id = UUID.randomUUID().toString(),
-            speaker = "assistant",
-            text = text,
-            sessionId = currentSessionId(context)
-        )
-        appendToFile(entry)
-        return entry
-    }
+    /** Newest-last copy of the transcript. */
+    fun getRecentMessages(limit: Int = MAX_ENTRIES): List<MemoryEntry> =
+        synchronized(lock) { entries.takeLast(limit.coerceAtLeast(1)) }
 
-    fun getRecentMessages(limit: Int = MAX_ENTRIES): List<MemoryEntry> {
-        val entries = mutableListOf<MemoryEntry>()
-        val sessionId = currentSessionId(context)
-
-        val index = loadIndex()
-        val sessionEntries = index[sessionId] ?: emptyList()
-
-        for (entry in sessionEntries.reversed().take(limit)) {
-            entries.add(entry)
+    /**
+     * The history handed to the model, oldest first, trimmed to a token budget.
+     * Empty when there is nothing remembered yet.
+     */
+    fun getConversationContext(maxExchanges: Int = 5): String {
+        val recent = getRecentMessages(maxExchanges.coerceAtLeast(1) * 2)
+        if (recent.isEmpty()) return ""
+        val lines = ArrayDeque<String>()
+        var used = 0
+        for (entry in recent.asReversed()) {
+            val who = if (entry.speaker == "user") "USER" else "JARVIS"
+            val line = "$who: ${entry.text.take(MAX_TURN_CHARS).trim()}"
+            if (used + line.length > MAX_CONTEXT_CHARS) break
+            used += line.length + 1
+            lines.addFirst(line)
         }
-
-        if (entries.isEmpty() && logFile.exists()) {
-            entries.clear()
-            val lines = logFile.readLines()
-            for (line in lines.reversed()) {
-                val entry = parseLine(line)
-                if (entry != null && entry.sessionId == sessionId) {
-                    entries.add(entry)
-                    if (entries.size >= limit) break
-                }
-            }
+        if (lines.isEmpty()) return ""
+        return buildString {
+            appendLine("Earlier in this conversation (oldest first):")
+            for (line in lines) appendLine(line)
         }
-
-        return entries
     }
 
-    fun getConversationContext(maxExchanges: Int = 10): String {
-        val messages = getRecentMessages(maxExchanges * 2)
-        if (messages.isEmpty()) return ""
-
-        val context = StringBuilder()
-        context.append("Conversation history (most recent first):\n")
-        for (msg in messages) {
-            val speaker = if (msg.speaker == "user") "USER" else "ASSISTANT"
-            context.append("[$speaker]: ${msg.text}\n")
-        }
-        return context.toString()
-    }
-
-    fun clearSession() {
-        val sessionId = currentSessionId(context)
-        val index = loadIndex()
-        index.remove(sessionId)
-        saveIndex(index)
-    }
+    fun clearSession() = clearAll()
 
     fun clearAll() {
-        logFile.delete()
-        memoryIndexFile.delete()
-        newSession(context)
+        synchronized(lock) { entries.clear() }
+        sessionId = UUID.randomUUID().toString()
+        schedulePush(force = true)
     }
 
-    private fun appendToFile(entry: MemoryEntry) {
-        logFile.parentFile?.mkdirs()
-        val json = """{"id":"${entry.id}","speaker":"${entry.speaker}","text":"${escapeJson(entry.text)}","timestamp":${entry.timestamp},"sessionId":"${entry.sessionId}"}"""
-        logFile.appendText("$json\n")
-        val index = loadIndex()
-        index.getOrPut(entry.sessionId) { mutableListOf() }.add(entry)
-        trimIndex(index)
-        saveIndex(index)
+    /** Serialized transcript in the format stored on GitHub. */
+    fun toJson(): String {
+        val messages = JSONArray()
+        synchronized(lock) {
+            for (entry in entries) {
+                messages.put(
+                    JSONObject()
+                        .put("id", entry.id)
+                        .put("speaker", entry.speaker)
+                        .put("text", entry.text)
+                        .put("timestamp", entry.timestamp)
+                        .put("sessionId", entry.sessionId),
+                )
+            }
+        }
+        return JSONObject()
+            .put("app", "JARVIS")
+            .put("sessionId", sessionId)
+            .put("updatedAt", System.currentTimeMillis())
+            .put("messages", messages)
+            .toString()
     }
 
-    private fun trimIndex(index: MutableMap<String, MutableList<MemoryEntry>>) {
-        val currentSession = currentSessionId(context)
-        for ((sid, list) in index) {
-            if (list.isNotEmpty()) {
-                if (sid == currentSession && list.size > MAX_ENTRIES) {
-                    list.removeAt(0)
-                }
-                if (sid != currentSession && list.size > 10) {
-                    list.removeAt(0)
-                }
+    /** Save now and wait for the result. Safe to call from a background thread. */
+    fun syncNow(): GithubPusher.PushResult {
+        val client = pusher ?: return GithubPusher.PushResult(false, "GitHub is not configured.")
+        val result = client.pushConversation(toJson(), REMOTE_PATH)
+        if (!result.success) Log.w(TAG, "cloud save failed: ${result.message}")
+        return result
+    }
+
+    private fun schedulePush(force: Boolean = false) {
+        if (pusher == null) return
+        if (!autoPush && !force) return
+        if (pushQueued) return
+        pushQueued = true
+        worker.execute {
+            try {
+                Thread.sleep(PUSH_DEBOUNCE_MS)
+                syncNow()
+            } finally {
+                pushQueued = false
             }
         }
     }
 
-    private fun loadIndex(): MutableMap<String, MutableList<MemoryEntry>> {
-        if (!memoryIndexFile.exists()) return mutableMapOf()
+    private fun parse(json: String): List<MemoryEntry> {
         return try {
-            val json = memoryIndexFile.readText()
-            val decoded = Base64.decode(json, Base64.NO_WRAP)
-            val obj = org.json.JSONObject(String(decoded))
-            val map = mutableMapOf<String, MutableList<MemoryEntry>>()
-            val keys = obj.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val list = mutableListOf<MemoryEntry>()
-                val arr = obj.optJSONArray(key)
-                if (arr != null) {
-                    for (i in 0 until arr.length()) {
-                        val item = arr.getJSONObject(i)
-                        list.add(
-                            MemoryEntry(
-                                id = item.getString("id"),
-                                speaker = item.getString("speaker"),
-                                text = item.getString("text"),
-                                timestamp = item.getLong("timestamp"),
-                                sessionId = item.getString("sessionId")
-                            )
-                        )
-                    }
-                }
-                map[key] = list
+            val root = JSONObject(json)
+            val fallbackSession = root.optString("sessionId")
+            val arr = root.optJSONArray("messages") ?: return emptyList()
+            val out = ArrayList<MemoryEntry>(arr.length())
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val text = item.optString("text")
+                if (text.isEmpty()) continue
+                out.add(
+                    MemoryEntry(
+                        id = item.optString("id").ifEmpty { UUID.randomUUID().toString() },
+                        speaker = item.optString("speaker", "user"),
+                        text = text,
+                        timestamp = item.optLong("timestamp", 0L),
+                        sessionId = item.optString("sessionId").ifEmpty { fallbackSession },
+                    ),
+                )
             }
-            map
+            out
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to load memory index", e)
-            mutableMapOf()
+            Log.w(TAG, "could not parse cloud memory", e)
+            emptyList()
         }
-    }
-
-    private fun saveIndex(index: Map<String, MutableList<MemoryEntry>>) {
-        try {
-            val json = org.json.JSONObject()
-            for ((sessionId, entries) in index) {
-                val arr = org.json.JSONArray()
-                for (entry in entries) {
-                    val obj = org.json.JSONObject()
-                    obj.put("id", entry.id)
-                    obj.put("speaker", entry.speaker)
-                    obj.put("text", entry.text)
-                    obj.put("timestamp", entry.timestamp)
-                    obj.put("sessionId", entry.sessionId)
-                    arr.put(obj)
-                }
-                json.put(sessionId, arr)
-            }
-            memoryIndexFile.parentFile?.mkdirs()
-            memoryIndexFile.writeText(Base64.encodeToString(json.toString().toByteArray(), Base64.NO_WRAP))
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to save memory index", e)
-        }
-    }
-
-    private fun parseLine(line: String): MemoryEntry? {
-        return try {
-            val obj = org.json.JSONObject(line)
-            MemoryEntry(
-                id = obj.getString("id"),
-                speaker = obj.getString("speaker"),
-                text = obj.getString("text"),
-                timestamp = obj.getLong("timestamp"),
-                sessionId = obj.getString("sessionId")
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun escapeJson(s: String): String {
-        return s
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
     }
 }

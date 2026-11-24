@@ -117,7 +117,18 @@ class JarvisController(
     private val registry = ToolRegistry(app)
     private val haptics = Haptics(app)
     private val lineIds = AtomicLong(1)
-    private val conversationMemory: ConversationMemory = ConversationMemory(app)
+    private val conversationMemory: ConversationMemory = ConversationMemory()
+
+    init {
+        // Conversation memory is stored online, in the GitHub repo the user
+        // configured; nothing is written to local storage.
+        conversationMemory.setAutoPush(settingsStore.current.autoSync)
+        conversationMemory.configure(
+            settingsStore.current.githubToken,
+            settingsStore.current.githubOwner,
+            settingsStore.current.githubRepo,
+        )
+    }
 
     val settings: StateFlow<JarvisSettings> = settingsStore.settings
 
@@ -197,13 +208,12 @@ class JarvisController(
                         reportError("The assistant engine is not ready.")
                         return
                     }
-                    // Prepend conversation context for memory
-                    val context = conversationMemory.getConversationContext(5) // Last 5 exchanges
-                    val promptWithMemory = if (context.isNotBlank()) {
-                        "$context\n\nCurrent input: $text"
-                    } else {
-                        text
-                    }
+                    // Context is read before the new turn is stored, so the
+                    // model sees the history once instead of the input twice.
+                    val remembered = conversationMemory.getConversationContext(5)
+                    conversationMemory.addUserMessage(text)
+                    val promptWithMemory =
+                        if (remembered.isNotBlank()) "$remembered\n\nCurrent input: $text" else text
                     val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
                     if (code != 0) reportError(codeMessage(code))
                 }
@@ -450,13 +460,10 @@ class JarvisController(
                                 },
                         )
                     }
-                    // Save to conversation memory
+                    // Save to conversation memory; it persists itself online
+                    // whenever GitHub sync is configured.
                     if (text.isNotBlank()) {
                         conversationMemory.addAssistantMessage(text)
-                        // Auto-sync to GitHub if enabled
-                        if (settingsStore.current.autoSync && settingsStore.current.githubToken.isNotBlank()) {
-                            syncToGitHub()
-                        }
                     }
                 }
 
@@ -530,7 +537,9 @@ class JarvisController(
         Log.i(TAG, "command received: \"$trimmed\"")
         if (!ensureEngine()) return
         appendLine(Speaker.USER, trimmed)
-        // Save to conversation memory
+        // Context is read before the new turn is stored, so the model sees the
+        // history once instead of the input twice.
+        val remembered = conversationMemory.getConversationContext(5)
         conversationMemory.addUserMessage(trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
         val current = handle
@@ -538,13 +547,8 @@ class JarvisController(
             reportError("The assistant engine is not ready.")
             return
         }
-        // Prepend conversation context for memory
-        val context = conversationMemory.getConversationContext(5) // Last 5 exchanges
-        val promptWithMemory = if (context.isNotBlank()) {
-            "$context\n\nCurrent input: $trimmed"
-        } else {
-            trimmed
-        }
+        val promptWithMemory =
+            if (remembered.isNotBlank()) "$remembered\n\nCurrent input: $trimmed" else trimmed
         val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
         if (code != 0) reportError(codeMessage(code))
     }
@@ -1021,10 +1025,12 @@ class JarvisController(
     // GitHub sync
     fun setGitHubConfig(token: String, owner: String, repo: String) {
         settingsStore.setGitHubConfig(token, owner, repo)
+        conversationMemory.configure(token, owner, repo)
     }
 
     fun setAutoSync(enabled: Boolean) {
         settingsStore.setAutoSync(enabled)
+        conversationMemory.setAutoPush(enabled)
     }
 
     fun testGitHubConnection() {
@@ -1055,26 +1061,12 @@ class JarvisController(
             reportError("GitHub not configured. Set token, owner, and repo in Settings.")
             return
         }
+        conversationMemory.configure(token, owner, repo)
         scope.launch(Dispatchers.IO) {
-            // Get conversation memory as JSON
-            val memory = conversationMemory.getRecentMessages()
-            val jsonArray = org.json.JSONArray()
-            for (entry in memory) {
-                val obj = org.json.JSONObject()
-                obj.put("id", entry.id)
-                obj.put("speaker", entry.speaker)
-                obj.put("text", entry.text)
-                obj.put("timestamp", entry.timestamp)
-                obj.put("sessionId", entry.sessionId)
-                jsonArray.put(obj)
-            }
-            val memoryJson = "{\"sessionId\": \"${ConversationMemory.currentSessionId(app)}\", \"messages\": ${jsonArray.toString()}}"
-
-            val pusher = GithubPusher(token, owner, repo)
-            val result = pusher.pushConversation(memoryJson, "conversations/memory.json")
+            val result = conversationMemory.syncNow()
             withContext(Dispatchers.Main) {
                 if (result.success) {
-                    reportError("Pushed to GitHub: ${result.url}")
+                    reportError("Conversation saved to GitHub: ${result.url ?: ConversationMemory.REMOTE_PATH}")
                     clearError()
                 } else {
                     reportError("GitHub push failed: ${result.message}")
@@ -1083,31 +1075,6 @@ class JarvisController(
         }
     }
 
-    private fun syncToGitHub() {
-        val token = settingsStore.current.githubToken
-        val owner = settingsStore.current.githubOwner
-        val repo = settingsStore.current.githubRepo
-        if (token.isBlank() || owner.isBlank() || repo.isBlank()) return
-
-        scope.launch(Dispatchers.IO) {
-            val memory = conversationMemory.getRecentMessages()
-            val jsonArray = org.json.JSONArray()
-            for (entry in memory) {
-                val obj = org.json.JSONObject()
-                obj.put("id", entry.id)
-                obj.put("speaker", entry.speaker)
-                obj.put("text", entry.text)
-                obj.put("timestamp", entry.timestamp)
-                obj.put("sessionId", entry.sessionId)
-                jsonArray.put(obj)
-            }
-            val memoryJson = "{\"sessionId\": \"${ConversationMemory.currentSessionId(app)}\", \"messages\": ${jsonArray.toString()}}"
-
-            val pusher = GithubPusher(token, owner, repo)
-            pusher.pushConversation(memoryJson, "conversations/memory.json")
-            // Silent sync, no error shown
-        }
-    }
 
     fun openSpecialAccess(permission: String) =
         when (permission) {

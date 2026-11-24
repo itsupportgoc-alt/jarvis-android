@@ -620,14 +620,16 @@ fun SettingsSheet(
 
             item { Divider() }
 
-            // ---------------- GitHub Sync ----------------
-            item { SectionTitle("GITHUB SYNC") }
+            // ---------------- Online memory (GitHub) ----------------
+            item { SectionTitle("ONLINE MEMORY (GITHUB)") }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Push conversations to GitHub", style = MonoBody, color = JarvisText)
+                        Text("Remember conversations online", style = MonoBody, color = JarvisText)
                         Text(
-                            "Save your conversation history to a GitHub repo. Your token is stored in the Android Keystore.",
+                            "The conversation lives in GitHub, not on this phone: it is saved to " +
+                                "conversations/memory.json and loaded again on start, so JARVIS remembers " +
+                                "what was left in the conversation. Nothing is kept in local storage.",
                             style = MonoSmall,
                             color = JarvisMuted,
                         )
@@ -640,8 +642,8 @@ fun SettingsSheet(
             }
             item {
                 OutlinedTextField(
-                    value = settings.githubToken,
-                    onValueChange = { },
+                    value = githubToken,
+                    onValueChange = { githubToken = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     textStyle = MonoBody,
@@ -654,8 +656,8 @@ fun SettingsSheet(
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
-                        value = settings.githubOwner,
-                        onValueChange = { },
+                        value = githubOwner,
+                        onValueChange = { githubOwner = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         textStyle = MonoBody,
@@ -663,8 +665,8 @@ fun SettingsSheet(
                         colors = fieldColors(),
                     )
                     OutlinedTextField(
-                        value = settings.githubRepo,
-                        onValueChange = { },
+                        value = githubRepo,
+                        onValueChange = { githubRepo = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         textStyle = MonoBody,
@@ -699,7 +701,9 @@ fun SettingsSheet(
                     }
                 }
                 Text(
-                    "Token: Settings → Developer settings → Personal access tokens (classic). Needs repo scope.",
+                    "Token: GitHub → Settings → Developer settings → Personal access tokens (classic), " +
+                        "repo scope. Save with TEST CONNECTION once; every turn is then appended to " +
+                        "conversations/memory.json automatically.",
                     style = MonoSmall,
                     color = JarvisMuted,
                 )
