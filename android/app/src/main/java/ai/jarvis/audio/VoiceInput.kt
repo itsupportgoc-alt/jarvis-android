@@ -1,22 +1,33 @@
 package ai.jarvis.audio
 
+import ai.jarvis.BuildConfig
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import java.util.Locale
 
-/** Voice input through Android's speech recogniser.
+/**
+ * Voice input through Android's speech recogniser.
  *
- * This is the shipped voice path because it works on every API 29+ device and
- * requests on-device recognition with EXTRA_PREFER_OFFLINE; many devices run it
- * fully offline, and the app degrades to a clear error where they do not.
+ * This is the shipped voice path because it works on every API 29+ device.
  *
- * The Rust engine's Whisper path (`VoiceInputMode.ON_DEVICE`) is preferred for
- * guaranteed-offline operation, but requires a feature build with a ggml model;
- * see README "Engine status".
+ * The hard part is that some recogniser backends (notably MIUI's offline model
+ * on the Redmi 10) report speech, stream partial words, and then end with an
+ * **empty** final result or with no result callback at all. In the old code that
+ * ended silently: the orb moved with the voice, nothing was ever submitted, and
+ * JARVIS "heard you but never replied". Two rules fix that:
+ *
+ *  1. the last partial transcript is kept and used whenever the final result is
+ *     empty (or never arrives), and
+ *  2. a watchdog closes the session shortly after `onEndOfSpeech`, so a dropped
+ *     callback can never leave the UI listening forever.
  *
  * `onRmsChanged` is a real measurement from the platform (dBFS), used for the
  * orb waveform. It is not synthesised.
@@ -40,6 +51,7 @@ class VoiceInput(
         fun onEnded()
     }
 
+    private val handler = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
 
@@ -49,7 +61,34 @@ class VoiceInput(
     /** Set by [cancel]; suppresses the platform's trailing ERROR_CLIENT / results. */
     private var cancelled = false
 
-    val isAvailable: Boolean get() = SpeechRecognizer.isRecognitionAvailable(context)
+    /** Last words the recogniser streamed, used when the final result is empty. */
+    private var lastPartial = ""
+
+    /** True once this session has produced a transcript or reported an error. */
+    private var settled = false
+
+    val isAvailable: Boolean
+        get() = preferredRecognitionService(context) != null || SpeechRecognizer.isRecognitionAvailable(context)
+
+    /**
+     * Fires when the recogniser ended the utterance but never delivered a final
+     * result. Whatever was heard is submitted rather than thrown away.
+     */
+    private val watchdog =
+        Runnable {
+            if (settled) return@Runnable
+            val heard = lastPartial.trim()
+            if (heard.isEmpty()) {
+                Log.i(TAG, "no final and no partial after end of speech")
+                settled = true
+                listener.onLevel(0f)
+                listener.onError("I didn't catch that.", true)
+                listener.onEnded()
+            } else {
+                Log.i(TAG, "final result never arrived; submitting partial \"$heard\"")
+                deliverFinal(heard)
+            }
+        }
 
     fun start(): Boolean {
         if (!isAvailable) {
@@ -57,11 +96,14 @@ class VoiceInput(
             return false
         }
         val engine =
-            recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
+            recognizer ?: createRecognition(context).also {
                 it.setRecognitionListener(recognition)
                 recognizer = it
             }
         if (listening) runCatching { engine.cancel() }
+        handler.removeCallbacksAndMessages(null)
+        lastPartial = ""
+        settled = false
         val intent =
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
@@ -70,15 +112,17 @@ class VoiceInput(
                 )
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                // Not forcing EXTRA_PREFER_OFFLINE: on this device the offline
-                // model reports speech but returns no transcript, so preferring
-                // it made the microphone look deaf. The platform chooses.
+                // Ask for the network recogniser. MIUI's offline model reports
+                // speech and then returns an empty transcript, which is exactly
+                // "it hears me but never answers"; offline=false avoids it.
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                 // The device language, not a hardcoded en-GB: an offline model
-                // is only usable for the locale actually installed, and with
-                // EXTRA_PREFER_OFFLINE a missing en-GB model fails the request.
+                // is only usable for the locale actually installed.
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 700)
+                // Only the trailing-silence window is set. Forcing
+                // COMPLETE_SILENCE_LENGTH_MILLIS at 900 ms truncated sentences
+                // and ended sessions long before the user finished speaking.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             }
         cancelled = false
         listening = true
@@ -95,6 +139,7 @@ class VoiceInput(
     fun cancel() {
         cancelled = true
         listening = false
+        handler.removeCallbacksAndMessages(null)
         runCatching { recognizer?.cancel() }
     }
 
@@ -104,11 +149,29 @@ class VoiceInput(
         recognizer = null
     }
 
+    /** Single exit for a successful transcript: no double submission. */
+    private fun deliverFinal(text: String) {
+        if (settled && !listening) return
+        settled = true
+        listening = false
+        handler.removeCallbacksAndMessages(null)
+        listener.onLevel(0f)
+        if (BuildConfig.DEBUG) Log.i(TAG, "final transcript: \"$text\"")
+        listener.onFinal(text)
+        listener.onEnded()
+    }
+
     private val recognition =
         object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onReadyForSpeech(params: Bundle?) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "ready for speech")
+            }
 
-            override fun onBeginningOfSpeech() = Unit
+            override fun onBeginningOfSpeech() {
+                if (BuildConfig.DEBUG) Log.d(TAG, "speech started")
+                // A new utterance means the previous partial is stale.
+                lastPartial = ""
+            }
 
             override fun onRmsChanged(rmsdB: Float) {
                 // The platform reports roughly -2 dB (silence) to 10 dB (loud).
@@ -119,21 +182,32 @@ class VoiceInput(
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
-                // Guard the pending final result against a too-eager restart.
-                // Android fires onEndOfSpeech a little before onResults, and the
-                // Kotlin side used to re-arm the microphone here, which could drop
-                // the incoming transcript. Close the session for the callback but
-                // tell the host we are done only after the final result is consumed.
                 listening = false
+                // Android fires this a little before onResults. If the result
+                // never comes, the watchdog answers from the partial instead of
+                // leaving the microphone hanging.
+                handler.removeCallbacks(watchdog)
+                handler.postDelayed(watchdog, END_OF_SPEECH_GRACE_MS)
             }
 
             override fun onError(error: Int) {
                 listening = false
+                handler.removeCallbacksAndMessages(null)
                 listener.onLevel(0f)
                 if (cancelled) {
                     cancelled = false
                     return
                 }
+                if (settled) return
+                Log.i(TAG, "recogniser error $error (partial=\"${lastPartial.trim()}\")")
+                val heard = lastPartial.trim()
+                // Speech was heard but recognition ended without a usable final
+                // result: answer what was captured rather than re-arming forever.
+                if (heard.isNotEmpty() && error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    deliverFinal(heard)
+                    return
+                }
+                settled = true
                 // These are the ordinary ways a session ends; a caller that
                 // still wants to listen simply opens another session.
                 val recoverable =
@@ -143,8 +217,7 @@ class VoiceInput(
                         error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
                         // Some recogniser backends (notably Google's on certain
                         // ROM/account configurations) return non-standard codes
-                        // such as 11 for a transient service fault. Treat those as
-                        // recoverable rather than a hard fault.
+                        // such as 11 for a transient service fault.
                         error >= 10
                 listener.onError(messageFor(error), recoverable)
             }
@@ -154,23 +227,25 @@ class VoiceInput(
                     cancelled = false
                     return
                 }
-                listening = false
-                listener.onLevel(0f)
+                handler.removeCallbacksAndMessages(null)
                 val text =
                     results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
+                        ?.firstOrNull { !it.isNullOrBlank() }
                         ?.trim()
                         .orEmpty()
-                if (text.isNotEmpty()) {
-                    listener.onFinal(text)
+                // The MIUI offline backend returns an empty bundle even though it
+                // just streamed the words as partials; those are the transcript.
+                val best = text.ifEmpty { lastPartial.trim() }
+                if (best.isNotEmpty()) {
+                    if (text.isEmpty()) Log.i(TAG, "empty final result; using partial \"$best\"")
+                    deliverFinal(best)
                 } else {
+                    settled = true
+                    listener.onLevel(0f)
                     listener.onError("I didn't catch that.", true)
+                    listener.onEnded()
                 }
-                // Tell the host the session is truly over, now that the final
-                // result has been consumed. On a fresh tap the host can now
-                // re-arm the microphone for the next utterance.
-                listener.onEnded()
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -180,7 +255,10 @@ class VoiceInput(
                         ?.firstOrNull()
                         ?.trim()
                         .orEmpty()
-                listener.onPartial(text)
+                if (text.isNotEmpty()) {
+                    lastPartial = text
+                    listener.onPartial(text)
+                }
             }
 
             override fun onEvent(
@@ -206,4 +284,59 @@ class VoiceInput(
                     else -> "Speech recognition is having trouble. Try again in a moment."
                 }
         }
+
+    private companion object {
+        const val TAG = "JarvisVoice"
+
+        /** Grace period between end of speech and the partial fallback. */
+        const val END_OF_SPEECH_GRACE_MS = 2_500L
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Recogniser selection
+// ---------------------------------------------------------------------------
+
+/**
+ * The phone's default recogniser is not always a working one.
+ *
+ * On the Redmi 10 the secure setting points at `com.google.android.tts`'s stub
+ * service, which reports speech, streams partial words and then returns an empty
+ * transcript — "it hears me but never replies". The real Google recogniser is
+ * installed and listed for the same intent, so the app binds that component
+ * directly instead of trusting the default.
+ */
+internal fun preferredRecognitionService(context: Context): ComponentName? {
+    val candidates = recognitionServices(context)
+    if (BuildConfig.DEBUG) {
+        Log.d(VOICE_LOG_TAG, "recogniser services: ${candidates.joinToString().ifBlank { "none" }}")
+    }
+    return candidates.firstOrNull { it.packageName == GOOGLE_SEARCH_PACKAGE }
+        ?: candidates.firstOrNull { it.packageName != STUB_RECOGNISER_PACKAGE }
+}
+
+internal fun recognitionServices(context: Context): List<ComponentName> =
+    runCatching {
+        context.packageManager
+            .queryIntentServices(Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0)
+            .mapNotNull { it.serviceInfo }
+            .map { ComponentName(it.packageName, it.name) }
+    }.getOrNull().orEmpty()
+
+internal fun createRecognition(context: Context): SpeechRecognizer {
+    val preferred = preferredRecognitionService(context)
+    if (preferred != null) {
+        val bound =
+            runCatching { SpeechRecognizer.createSpeechRecognizer(context, preferred) }.getOrNull()
+        if (bound != null) {
+            Log.i(VOICE_LOG_TAG, "using recogniser $preferred")
+            return bound
+        }
+        Log.w(VOICE_LOG_TAG, "could not bind $preferred; using the system default")
+    }
+    return SpeechRecognizer.createSpeechRecognizer(context)
+}
+
+private const val GOOGLE_SEARCH_PACKAGE = "com.google.android.googlequicksearchbox"
+private const val STUB_RECOGNISER_PACKAGE = "com.google.android.tts"
+private const val VOICE_LOG_TAG = "JarvisVoice"

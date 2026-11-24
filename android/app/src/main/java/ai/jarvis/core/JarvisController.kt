@@ -447,6 +447,8 @@ class JarvisController(
                     val mood = event.optString("mood", "neutral")
                     if (text.isEmpty()) {
                         Log.w(TAG, "the model finished with no answer for the last prompt")
+                        // Silence looks like a dead assistant: say the turn failed.
+                        reportError("I didn't get an answer that time. Ask me again.", phase = Phase.IDLE)
                     }
                     _ui.update {
                         it.copy(

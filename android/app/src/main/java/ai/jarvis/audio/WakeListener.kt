@@ -38,13 +38,15 @@ class WakeListener(
 
     fun start(): Boolean {
         if (running) return true
-        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+        if (preferredRecognitionService(appContext) == null &&
+            !SpeechRecognizer.isRecognitionAvailable(appContext)
+        ) {
             onUnavailable("This device has no speech recognition service for the wake word.")
             return false
         }
         running = true
         recognizer =
-            SpeechRecognizer.createSpeechRecognizer(appContext).also {
+            createRecognition(appContext).also {
                 it.setRecognitionListener(listener)
             }
         Log.i(TAG, "wake listener started")
@@ -165,7 +167,10 @@ class WakeListener(
                         .orEmpty()
                 if (text.isNotBlank()) {
                     Log.w(TAG, "onPartialResults: \"$text\"")
-                    handleTranscript(text)
+                    // A partial that is only the wake word must not fire: it would
+                    // open a new session and throw away the sentence still being
+                    // spoken. Wait for the words after "Jarvis".
+                    if (!WakeWord.command(text).isNullOrBlank()) handleTranscript(text)
                 }
             }
 
