@@ -146,6 +146,9 @@ class ConversationMemory {
         return entry
     }
 
+    /** How many messages are remembered right now. */
+    val size: Int get() = synchronized(lock) { entries.size }
+
     /** Newest-last copy of the transcript. */
     fun getRecentMessages(limit: Int = MAX_ENTRIES): List<MemoryEntry> =
         synchronized(lock) { entries.takeLast(limit.coerceAtLeast(1)) }

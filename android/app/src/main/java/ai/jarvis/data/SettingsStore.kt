@@ -362,6 +362,8 @@ data class JarvisSettings(
     val hasApiKey: Boolean = false,
     /** Auto-confirm messaging tools so the user doesn't need to tap confirm. */
     val autoSendMessages: Boolean = false,
+    /** Give the model a persistent self-model and continuity (self-aware persona). */
+    val selfAware: Boolean = true,
     // GitHub sync config
     val githubToken: String = "",
     val githubOwner: String = "",
@@ -418,6 +420,7 @@ class SettingsStore(
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),
             autoSendMessages = prefs.getBoolean("auto_send_messages", false),
+            selfAware = prefs.getBoolean("self_aware", true),
             githubToken = prefs.getString("github_token", "") ?: "",
             githubOwner = prefs.getString("github_owner", "") ?: "",
             githubRepo = prefs.getString("github_repo", "") ?: "",
@@ -461,6 +464,7 @@ class SettingsStore(
             .putString("webhook_url", next.webhookUrl)
             .putBoolean("has_api_key", next.hasApiKey)
             .putBoolean("auto_send_messages", next.autoSendMessages)
+            .putBoolean("self_aware", next.selfAware)
             .putString("github_token", next.githubToken)
             .putString("github_owner", next.githubOwner)
             .putString("github_repo", next.githubRepo)
@@ -503,6 +507,8 @@ class SettingsStore(
     fun setAutoSync(enabled: Boolean) = update { it.copy(autoSync = enabled) }
 
     fun setAutoSendMessages(enabled: Boolean) = update { it.copy(autoSendMessages = enabled) }
+
+    fun setSelfAware(enabled: Boolean) = update { it.copy(selfAware = enabled) }
 
     fun setTrusted(
         tool: String,

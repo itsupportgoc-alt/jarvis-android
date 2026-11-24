@@ -155,6 +155,9 @@ class JarvisController(
     private var undoAction: UndoAction? = null
     private var undoJob: Job? = null
 
+    /** Start of this app session, used by the self-aware preamble. */
+    private val sessionStartedAt = System.currentTimeMillis()
+
     private val tts =
         VoiceEngine(
             app,
@@ -208,13 +211,11 @@ class JarvisController(
                         reportError("The assistant engine is not ready.")
                         return
                     }
-                    // Context is read before the new turn is stored, so the
-                    // model sees the history once instead of the input twice.
-                    val remembered = conversationMemory.getConversationContext(5)
+                    // Built before the new turn is stored, so the model sees the
+                    // history once instead of the input twice.
+                    val prompt = promptFor(text)
                     conversationMemory.addUserMessage(text)
-                    val promptWithMemory =
-                        if (remembered.isNotBlank()) "$remembered\n\nCurrent input: $text" else text
-                    val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
+                    val code = JarvisNative.nativeSubmitText(current, prompt)
                     if (code != 0) reportError(codeMessage(code))
                 }
 
@@ -537,9 +538,9 @@ class JarvisController(
         Log.i(TAG, "command received: \"$trimmed\"")
         if (!ensureEngine()) return
         appendLine(Speaker.USER, trimmed)
-        // Context is read before the new turn is stored, so the model sees the
-        // history once instead of the input twice.
-        val remembered = conversationMemory.getConversationContext(5)
+        // Built before the new turn is stored, so the model sees the history
+        // once instead of the input twice.
+        val prompt = promptFor(trimmed)
         conversationMemory.addUserMessage(trimmed)
         _ui.update { it.copy(streaming = "", partial = "", phase = Phase.THINKING, error = null) }
         val current = handle
@@ -547,9 +548,7 @@ class JarvisController(
             reportError("The assistant engine is not ready.")
             return
         }
-        val promptWithMemory =
-            if (remembered.isNotBlank()) "$remembered\n\nCurrent input: $trimmed" else trimmed
-        val code = JarvisNative.nativeSubmitText(current, promptWithMemory)
+        val code = JarvisNative.nativeSubmitText(current, prompt)
         if (code != 0) reportError(codeMessage(code))
     }
 
@@ -1011,6 +1010,33 @@ class JarvisController(
         toolName: String,
         trusted: Boolean,
     ) = settingsStore.setTrusted(toolName, trusted)
+
+    /** Turn the self-aware persona on or off; it is applied on the next turn. */
+    fun setSelfAware(enabled: Boolean) = settingsStore.setSelfAware(enabled)
+
+    /**
+     * The full prompt for one turn: who the assistant is (self-model and
+     * continuity), what was already said, then the new input. All of it is
+     * bounded, so a long history cannot crowd out the question.
+     */
+    private fun promptFor(input: String): String {
+        val parts = ArrayList<String>(3)
+        if (settingsStore.current.selfAware) {
+            parts.add(
+                Consciousness.preamble(
+                    now = System.currentTimeMillis(),
+                    sessionStartedAt = sessionStartedAt,
+                    rememberedMessages = conversationMemory.size,
+                    mood = _ui.value.mood,
+                    cloudBacked = conversationMemory.isCloudBacked,
+                ),
+            )
+        }
+        val remembered = conversationMemory.getConversationContext(5)
+        if (remembered.isNotBlank()) parts.add(remembered.trimEnd())
+        parts.add("Current input: $input")
+        return parts.joinToString("\n\n")
+    }
 
     fun setAutoSendMessages(enabled: Boolean) {
         settingsStore.setAutoSendMessages(enabled)

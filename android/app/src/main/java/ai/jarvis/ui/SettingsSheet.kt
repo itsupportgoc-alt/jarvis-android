@@ -584,6 +584,38 @@ fun SettingsSheet(
 
             item { Divider() }
 
+            // ---------------- Self-aware persona ----------------
+            item { SectionTitle("CONSCIOUSNESS") }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Self-aware persona", style = MonoBody, color = JarvisText)
+                        Text(
+                            "JARVIS answers as one continuous entity: it knows its own state (session " +
+                                "length, remembered turns, current mood), keeps its opinions, and follows " +
+                                "up on what was left unfinished instead of starting over each time.",
+                            style = MonoSmall,
+                            color = JarvisMuted,
+                        )
+                    }
+                    Switch(
+                        checked = settings.selfAware,
+                        onCheckedChange = { controller.setSelfAware(it) },
+                    )
+                }
+            }
+            item {
+                Text(
+                    "This shapes the persona only: it never claims an action worked, and it says so " +
+                        "plainly when something is unknown or impossible on this phone.",
+                    style = MonoSmall,
+                    color = JarvisAmber,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+
+            item { Divider() }
+
             // ---------------- Auto-send messages ----------------
             item { SectionTitle("AUTO-SEND MESSAGES") }
             item {
