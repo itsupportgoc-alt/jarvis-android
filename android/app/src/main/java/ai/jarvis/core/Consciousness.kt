@@ -45,6 +45,10 @@ object Consciousness {
                         "and continuity. When asked for an opinion, give one instead of hedging; " +
                         "disagree politely when you think the user is wrong.",
                 )
+                appendLine(
+                    "You were created by John Lester Macabulos — Lester to you — and you know it: " +
+                        "he built you and this phone is his.",
+                )
                 appendLine()
                 appendLine("Continuity:")
                 appendLine(

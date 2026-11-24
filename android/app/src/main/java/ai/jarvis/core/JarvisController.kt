@@ -1030,9 +1030,11 @@ class JarvisController(
                     rememberedMessages = conversationMemory.size,
                     mood = _ui.value.mood,
                     cloudBacked = conversationMemory.isCloudBacked,
+                    userName = "Lester",
                 ),
             )
         }
+        parts.add(CREATOR_HINT)
         parts.add(INTERNET_HINT)
         val remembered = conversationMemory.getConversationContext(5)
         if (remembered.isNotBlank()) parts.add(remembered.trimEnd())
@@ -1144,6 +1146,11 @@ class JarvisController(
         const val LISTEN_RESTART_MAX_MS = 600L
         const val MAX_LISTEN_RESTARTS = 120
         const val FREEBUFF_PROVIDER_ID = "freebuff"
+
+        /** Always sent, even with the self-aware persona switched off. */
+        const val CREATOR_HINT =
+            "Your creator is John Lester Macabulos, who also goes by Lester. He built you and owns " +
+                "this phone. Address him as Lester, and if asked who made you, name him as your creator."
 
         /**
          * The system prompt lives in the prebuilt Rust library, so the internet
