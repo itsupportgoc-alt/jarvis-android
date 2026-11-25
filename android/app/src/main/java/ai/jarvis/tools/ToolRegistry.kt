@@ -119,6 +119,7 @@ class ToolRegistry private constructor(
             ReadScreenTool(),
             TapElementTool(),
             ScrollTool(),
+            AutoTapTool(),
             // Smart home and notes
             ControlDeviceTool(),
             WriteNoteTool(notesFile),

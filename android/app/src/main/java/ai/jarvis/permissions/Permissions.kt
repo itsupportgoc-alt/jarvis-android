@@ -59,7 +59,7 @@ object Permissions {
                 CapabilityStatus.NEEDS_GRANT
             }
         }
-        if (tool.spec.name in setOf("read_screen_text", "tap_element", "scroll", "close_app")) {
+        if (tool.spec.name in setOf("read_screen_text", "tap_element", "scroll", "auto_tap", "close_app")) {
             return if (hasAccessibility(context)) {
                 CapabilityStatus.GRANTED
             } else {

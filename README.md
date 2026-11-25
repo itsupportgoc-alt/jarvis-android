@@ -298,7 +298,7 @@ tool needs it, after a plain-English rationale.
 | Torch | `toggle_flashlight` | `CAMERA` | first use |
 | DND | `set_dnd` | `ACCESS_NOTIFICATION_POLICY` (special) | Settings deep link |
 | Notifications read | `read_notifications`, `dismiss_notification` | Notification access (special) | Settings deep link |
-| Screen control | `read_screen_text`, `tap_element`, `scroll`, `close_app` | Accessibility service (special, opt-in) | Settings deep link |
+| Screen control | `read_screen_text`, `tap_element`, `scroll` (up to 30 repeats), `auto_tap` (up to 100 repeats), `close_app` | Accessibility service (special, opt-in) | Settings deep link |
 | Network | reasoning, web, navigation, smart home | `INTERNET` | install-time normal |
 
 Alarms, timers, maps, media keys, battery and network status need no runtime
@@ -434,8 +434,22 @@ Demo script: [DEMO.md](DEMO.md).
   Android or MIUI refuses the background start, and logs every attempt under the
   `JarvisWakeBoot` tag, so `adb logcat -s JarvisWakeBoot JarvisService` says
   exactly what happened.
+* Controlling other apps — scrolling a feed, tapping on screen, reading the
+  screen — runs through Android's accessibility service. **No app can grant that
+  to itself and SEVEN does not try to**: the system only accepts the switch from
+  the person holding the phone. Settings → CAPABILITIES has one
+  `ENABLE PHONE CONTROL` button (and a GRANT button per capability); with USB
+  debugging, `adb shell settings put secure enabled_accessibility_services
+  ai.jarvis/ai.jarvis.service.JarvisAccessibilityService` plus `accessibility_enabled 1`
+  does the same thing. Everything else — calls, SMS, apps, timers, torch — uses
+  ordinary runtime permissions that the app does request itself.
 * `close_app` returns to the home screen: Android has no API to force-stop
   another app.
+* Automation is bounded on purpose. "Scroll the Facebook feed" opens the app and
+  scrolls a fixed number of screens; "play this game for me" opens it and taps
+  one named control (Play, Continue, Claim) repeatedly. SEVEN cannot play a game
+  that needs decisions — it never reads the game state and picks moves, and it
+  stops as soon as the button it was tapping disappears.
 * Verified on one device (Redmi 10, Android 13). Other OEMs' recognition and TTS
   services may behave differently.
 * Recognition accuracy is the platform speech service's, not the app's: with a

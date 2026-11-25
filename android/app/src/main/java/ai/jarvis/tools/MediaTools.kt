@@ -205,13 +205,18 @@ class ScrollTool :
     Tool(
         ToolSpec(
             name = "scroll",
-            description = "Scroll the current screen using the accessibility service.",
+            description =
+                "Scroll the current screen using the accessibility service. " +
+                    "Use times (up to 30) to keep scrolling a feed in one call, e.g. " +
+                    "\"scroll the Facebook feed\" is open_app then scroll times=10.",
             parameters =
                 schema(
                     "direction" to
                         JSONObject()
                             .put("type", "string")
                             .put("enum", JSONArray().put("up").put("down")),
+                    "times" to intProp("How many scrolls, 1 to 30"),
+                    "pause_ms" to intProp("Pause between scrolls in milliseconds, 0 to 2000"),
                 ),
             required = listOf("direction"),
             restricted = true,
@@ -225,8 +230,81 @@ class ScrollTool :
             return ToolResult.fail("The accessibility service is off. Enable it in Settings to scroll.")
         }
         val down = args.optString("direction", "down") != "up"
-        val scrolled = JarvisAccessibilityService.instance?.scroll(down) ?: false
-        return if (scrolled) ToolResult.ok("Scrolled.") else ToolResult.fail("Nothing to scroll here.")
+        val times = args.optInt("times", 1).coerceIn(1, MAX_SCROLLS)
+        val pause = args.optInt("pause_ms", DEFAULT_PAUSE_MS).coerceIn(0, 2000)
+        var done = 0
+        for (index in 0 until times) {
+            val scrolled = JarvisAccessibilityService.instance?.scroll(down) ?: false
+            if (!scrolled) break
+            done++
+            if (index < times - 1 && pause > 0) Thread.sleep(pause.toLong())
+        }
+        return when {
+            done == 0 -> ToolResult.fail("Nothing to scroll here.")
+            done < times ->
+                ToolResult.ok(
+                    "Scrolled $done ${if (done == 1) "time" else "times"}, then the screen ran out of content.",
+                )
+            times == 1 -> ToolResult.ok("Scrolled.")
+            else -> ToolResult.ok("Scrolled $times times.")
+        }
+    }
+
+    private companion object {
+        const val MAX_SCROLLS = 30
+        const val DEFAULT_PAUSE_MS = 350
+    }
+}
+
+/**
+ * Keeps tapping one control, which is what "keep playing" actually means on a
+ * phone: Play again, Continue, Claim, Next. Bounded by a count and by the
+ * label disappearing, so it cannot run away tapping a screen that changed.
+ */
+class AutoTapTool :
+    Tool(
+        ToolSpec(
+            name = "auto_tap",
+            description =
+                "Tap the same visible control repeatedly — Play, Play again, Continue, " +
+                    "Claim, Next — to keep a game or a feed going. Open the app first. " +
+                    "Stops when the label disappears or times is reached (max 100).",
+            parameters =
+                schema(
+                    "text" to stringProp("Visible label or content description"),
+                    "times" to intProp("How many taps, 1 to 100"),
+                    "pause_ms" to intProp("Pause between taps in milliseconds, 100 to 5000"),
+                ),
+            required = listOf("text"),
+            restricted = true,
+        ),
+    ) {
+    override fun execute(
+        context: Context,
+        args: JSONObject,
+    ): ToolResult {
+        if (!hasAccessibility(context)) {
+            return ToolResult.fail("The accessibility service is off. Enable it in Settings to tap.")
+        }
+        val label = args.optString("text").trim()
+        if (label.isEmpty()) return ToolResult.fail("Which button should I tap?")
+        val times = args.optInt("times", 20).coerceIn(1, MAX_TAPS)
+        val pause = args.optInt("pause_ms", 800).coerceIn(100, 5000)
+        var taps = 0
+        for (index in 0 until times) {
+            if (JarvisAccessibilityService.instance?.tapByText(label) != true) break
+            taps++
+            if (index < times - 1) Thread.sleep(pause.toLong())
+        }
+        return when {
+            taps == 0 -> ToolResult.fail("I could not find \"$label\" on screen.")
+            taps == 1 -> ToolResult.ok("Tapped \"$label\" once, then it was gone.")
+            else -> ToolResult.ok("Tapped \"$label\" $taps times, then it was gone.")
+        }
+    }
+
+    private companion object {
+        const val MAX_TAPS = 100
     }
 }
 

@@ -654,6 +654,20 @@ fun SettingsSheet(
                     style = MonoSmall,
                 )
             }
+            item {
+                TextButton(onClick = { controller.openAccessibilitySettings() }) {
+                    Text("ENABLE PHONE CONTROL (ACCESSIBILITY)", style = MonoSmall, color = JarvisCyan)
+                }
+            }
+            item {
+                Text(
+                    "Scrolling a feed, tapping on screen and reading the screen need Android's " +
+                        "accessibility service. Android does not let any app switch this on for " +
+                        "itself, so SEVEN opens the exact system screen for you and shows GREEN on " +
+                        "each control once you flip the switch.",
+                    style = MonoSmall,
+                )
+            }
             items(tools, key = { "cap-${it.spec.name}" }) { tool ->
                 CapabilityRow(
                     tool = tool,
@@ -1210,4 +1224,4 @@ private fun openUrl(
 }
 
 private val NOTIFICATION_TOOLS = setOf("read_notifications", "dismiss_notification")
-private val ACCESSIBILITY_TOOLS = setOf("read_screen_text", "tap_element", "scroll", "close_app")
+private val ACCESSIBILITY_TOOLS = setOf("read_screen_text", "tap_element", "scroll", "auto_tap", "close_app")
