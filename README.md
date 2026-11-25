@@ -8,13 +8,15 @@ The assistant is called **Seven**; say "Seven" (or "Hey Seven") to wake it.
 
 ## Download
 
-**[Download the latest published SEVEN APK](https://github.com/itsupportgoc-alt/jarvis-android/releases)**
+| Platform | File | Notes |
+|---|---|---|
+| **Windows 10/11** | **[SEVEN-Windows-0.1.0-portable.exe](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.0/SEVEN-Windows-0.1.0-portable.exe)** (80 MB) | Single portable executable, no installer. Unsigned: SmartScreen shows *Windows protected your PC* → **More info → Run anyway**. Needs a microphone. |
+| **Android 10+** | **[seven-0.4.0-debug.apk](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.0/seven-0.4.0-debug.apk)** (38 MB) | Includes arm64-v8a, armeabi-v7a and x86_64 libraries. Debug-signed: enable "install unknown apps", then open the file. |
 
-Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
-(API 29). The APK is debug-signed for testing: enable "install unknown apps"
-for your browser or file manager, then open the file. It is **not** Play Store
-ready (restricted SMS/call-log/accessibility permissions; see the policy notes
-below).
+All releases: <https://github.com/itsupportgoc-alt/jarvis-android/releases>.
+
+The APK is **not** Play Store ready (restricted SMS/call-log/accessibility
+permissions; see the policy notes below).
 
 > The image above is a design mockup of the interface, not a screenshot from a
 > device.

@@ -3,6 +3,14 @@
 The desktop build of SEVEN: same arc-reactor surface, same wake word, same
 "say stop" behaviour, running as a normal Windows application.
 
+## Download
+
+**[SEVEN-Windows-0.1.0-portable.exe](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.0/SEVEN-Windows-0.1.0-portable.exe)**
+— one portable executable, nothing to install. It is unsigned, so Windows
+SmartScreen warns on first run: **More info → Run anyway**.
+
+## Run from source
+
 ```bash
 cd desktop
 npm install
