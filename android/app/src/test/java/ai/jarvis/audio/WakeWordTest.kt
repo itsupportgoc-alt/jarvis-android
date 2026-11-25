@@ -9,26 +9,26 @@ import org.junit.Test
 class WakeWordTest {
     @Test
     fun extractsCommandAfterName() {
-        assertEquals("open camera", WakeWord.command("Jarvis open camera"))
+        assertEquals("open camera", WakeWord.command("Seven open camera"))
     }
 
     @Test
     fun matchesTheReportedPhrase() {
         // The phrase that was never firing on the device, as the recogniser
         // delivers it and as the debug transcript injects it.
-        assertEquals("open settings", WakeWord.command("Jarvis open settings"))
-        assertEquals("open settings", WakeWord.command("jarvis, open settings."))
+        assertEquals("open settings", WakeWord.command("Seven open settings"))
+        assertEquals("open settings", WakeWord.command("seven, open settings."))
     }
 
     @Test
     fun toleratesGreetingAndPunctuation() {
-        assertEquals("what's the weather", WakeWord.command("Hey Jarvis, what's the weather?"))
+        assertEquals("what's the weather", WakeWord.command("Hey Seven, what's the weather?"))
     }
 
     @Test
     fun wakeWordAloneYieldsEmptyCommand() {
-        assertEquals("", WakeWord.command("Jarvis"))
-        assertEquals("", WakeWord.command("hey jarvis!"))
+        assertEquals("", WakeWord.command("Seven"))
+        assertEquals("", WakeWord.command("hey seven!"))
     }
 
     @Test
@@ -39,27 +39,34 @@ class WakeWordTest {
 
     @Test
     fun matchesNameInsideSentence() {
-        assertEquals("turn on the lights", WakeWord.command("okay jarvis turn on the lights"))
+        assertEquals("turn on the lights", WakeWord.command("okay seven turn on the lights"))
+    }
+
+    @Test
+    fun theOldNameIsNoLongerTheWakeWord() {
+        assertNull(WakeWord.command("Jarvis open camera"))
+        assertEquals("open camera", WakeWord.command("seven open camera"))
     }
 
     @Test
     fun doesNotMatchLookalikeWords() {
-        assertNull(WakeWord.command("jarvisonic speakers"))
+        assertNull(WakeWord.command("sevening speakers"))
     }
 
     @Test
     fun nameAloneIsNotACommand() {
         // The re-armed session hears only this and used to send it to the model.
-        assertTrue(WakeWord.isWakeOnly("Jarvis"))
-        assertTrue(WakeWord.isWakeOnly("jarvis."))
-        assertTrue(WakeWord.isWakeOnly("Hey Jarvis?"))
-        assertTrue(WakeWord.isWakeOnly(" okay, Jarvis! "))
+        assertTrue(WakeWord.isWakeOnly("Seven"))
+        assertTrue(WakeWord.isWakeOnly("seven."))
+        assertTrue(WakeWord.isWakeOnly("Hey Seven?"))
+        assertTrue(WakeWord.isWakeOnly(" okay, Seven! "))
+        assertTrue(WakeWord.isWakeOnly("hoy seven"))
     }
 
     @Test
     fun anythingWithAnInstructionIsACommand() {
-        assertFalse(WakeWord.isWakeOnly("Jarvis open camera"))
-        assertFalse(WakeWord.isWakeOnly("hey jarvis what's the weather"))
+        assertFalse(WakeWord.isWakeOnly("Seven open camera"))
+        assertFalse(WakeWord.isWakeOnly("hey seven what's the weather"))
         assertFalse(WakeWord.isWakeOnly("turn on the lights"))
         assertFalse(WakeWord.isWakeOnly(""))
     }

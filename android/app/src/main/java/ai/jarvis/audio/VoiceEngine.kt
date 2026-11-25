@@ -62,6 +62,9 @@ class VoiceEngine(
     private var outstanding = 0
     private var counter = 0
     private var preset: VoicePreset = presetFor("jarvis")
+
+    /** Explicit language such as `fil-PH`, or null to use the preset's locale. */
+    private var languageTag: String? = null
     private var rate = 1.0f
     private var pitch = 0.85f
     private var volume = 0.9f
@@ -95,8 +98,10 @@ class VoiceEngine(
         pitch: Float,
         volume: Float,
         maleVoice: Boolean,
+        language: String? = null,
     ) {
         this.preset = preset
+        this.languageTag = language
         this.rate = rate.coerceIn(0.5f, 2.0f)
         this.pitch = pitch.coerceIn(0.5f, 2.0f)
         this.volume = volume.coerceIn(0f, 1f)
@@ -137,7 +142,7 @@ class VoiceEngine(
         requestFocus()
         engine.setSpeechRate(rate)
         // A real male voice is used when installed; otherwise the preset's pitch
-        // is lowered further so JARVIS still sounds male.
+        // is lowered further so SEVEN still sounds male.
         val depth = if (maleVoice && !maleApplied) MALE_PITCH_FALLBACK else 1f
         engine.setPitch((pitch * depth * if (question) QUESTION_PITCH_BIAS else 1f).coerceIn(0.5f, 2f))
         val id = "u${++counter}"
@@ -193,8 +198,20 @@ class VoiceEngine(
      */
     private fun configureEngine() {
         val engine = tts ?: return
-        val locale = Locale.forLanguageTag(preset.locale)
-        engine.setLanguage(locale)
+        var locale = Locale.forLanguageTag(languageTag ?: preset.locale)
+        val status = engine.setLanguage(locale)
+        // A language without an installed voice (Tagalog on a phone that never
+        // downloaded one) would otherwise leave the engine silent, so fall back
+        // to the preset's English rather than dropping the reply.
+        if (status == TextToSpeech.LANG_MISSING_DATA || status == TextToSpeech.LANG_NOT_SUPPORTED) {
+            if (languageTag != null) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("JarvisVoice", "no voice for ${locale.toLanguageTag()}; using ${preset.locale}")
+                }
+                locale = Locale.forLanguageTag(preset.locale)
+                engine.setLanguage(locale)
+            }
+        }
         val voices = engine.voices ?: return
         val sameLanguage = voices.filter { it.locale.language == locale.language }
         val male =

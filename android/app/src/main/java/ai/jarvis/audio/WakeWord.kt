@@ -8,14 +8,14 @@ package ai.jarvis.audio
  * in casing, punctuation and spacing.
  */
 object WakeWord {
-    private val WAKE = Regex("\\b(?:hey\\s+)?jarvis\\b", RegexOption.IGNORE_CASE)
+    private val WAKE = Regex("\\b(?:hey\\s+)?seven\\b", RegexOption.IGNORE_CASE)
 
     /** Words that may accompany the name without forming a command. */
-    private val FILLER = setOf("hey", "ok", "okay", "yo")
+    private val FILLER = setOf("hey", "ok", "okay", "yo", "hoy")
 
     /**
-     * True when the transcript is nothing but the name, e.g. "Jarvis",
-     * "Hey Jarvis?" or "okay jarvis".
+     * True when the transcript is nothing but the name, e.g. "Seven",
+     * "Hey Seven?" or "okay seven".
      *
      * This is the phrase the recogniser returns when a silent session re-arms
      * and the user starts over by saying the wake word: it is an address, not
@@ -28,8 +28,8 @@ object WakeWord {
                 .replace(Regex("[^a-z ]"), " ")
                 .split(' ')
                 .filter { it.isNotEmpty() }
-        if (words.isEmpty() || "jarvis" !in words) return false
-        return words.all { it == "jarvis" || it in FILLER }
+        if (words.isEmpty() || "seven" !in words) return false
+        return words.all { it == "seven" || it in FILLER }
     }
 
     /**

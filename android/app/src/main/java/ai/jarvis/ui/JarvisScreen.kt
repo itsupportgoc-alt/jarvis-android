@@ -340,7 +340,7 @@ fun JarvisScreen(controller: JarvisController) {
                 title = { Text("AUTHORIZATION", style = MonoSmall, color = JarvisAmber) },
                 text = {
                     Column {
-                        Text("JARVIS wants to ${pending.sentence}.", style = MonoBody)
+                        Text("SEVEN wants to ${pending.sentence}.", style = MonoBody)
                         Text(
                             text =
                                 if (irreversible) {

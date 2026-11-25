@@ -3,6 +3,7 @@ package ai.jarvis.core
 import ai.jarvis.BuildConfig
 import ai.jarvis.audio.AudioCapture
 import ai.jarvis.audio.VoiceEngine
+import ai.jarvis.audio.SpeechLanguage
 import ai.jarvis.audio.VoiceInput
 import ai.jarvis.audio.WakeWord
 import ai.jarvis.awareness.AwarenessRepository
@@ -810,7 +811,7 @@ class JarvisController(
         if (granted) {
             startListening()
         } else if (canAskAgain) {
-            reportError("Without the microphone, JARVIS works in text mode only.")
+            reportError("Without the microphone, SEVEN works in text mode only.")
         } else {
             reportError("Microphone access is blocked. Allow it in Settings → Permissions → Microphone.")
         }
@@ -983,7 +984,7 @@ class JarvisController(
     private fun codeMessage(code: Int): String =
         when (code) {
             JarvisNative.CODE_NOT_CONFIGURED -> "Add an API key in Settings."
-            JarvisNative.CODE_PERMISSION_DENIED -> "Android denied a permission JARVIS needs."
+            JarvisNative.CODE_PERMISSION_DENIED -> "Android denied a permission SEVEN needs."
             JarvisNative.CODE_NETWORK ->
                 "The reasoning endpoint could not be reached. Check the connection, base URL and key."
             JarvisNative.CODE_MODEL -> "The model or its local files are unusable."
@@ -1424,7 +1425,15 @@ class JarvisController(
             pitch = settings.pitch,
             volume = settings.volume,
             maleVoice = settings.maleVoice,
+            language = SpeechLanguage.ttsTag(settings.spokenLanguage),
         )
+    }
+
+    /** Switches the spoken language and re-applies voice settings immediately. */
+    fun setSpokenLanguage(choice: String) {
+        settingsStore.setSpokenLanguage(choice)
+        applyVoiceSettings(settingsStore.current)
+        refreshAwareness()
     }
 
     fun setMaleVoice(enabled: Boolean) {

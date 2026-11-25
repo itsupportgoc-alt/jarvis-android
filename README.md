@@ -1,13 +1,14 @@
-# JARVIS
+# SEVEN
 
 An offline-first voice assistant for Android: Rust engine, OpenAI-compatible
 remote reasoning, device tools, and an arc-reactor UI that reacts to real audio.
+The assistant is called **Seven**; say "Seven" (or "Hey Seven") to wake it.
 
-![JARVIS interface — design mockup](docs/preview.jpg)
+![SEVEN interface — design mockup](docs/preview.jpg)
 
 ## Download
 
-**[Download the latest published JARVIS APK](https://github.com/itsupportgoc-alt/jarvis-android/releases)**
+**[Download the latest published SEVEN APK](https://github.com/itsupportgoc-alt/jarvis-android/releases)**
 
 Includes arm64-v8a, armeabi-v7a and x86_64 native libraries; requires Android 10+
 (API 29). The APK is debug-signed for testing: enable "install unknown apps"
@@ -24,29 +25,53 @@ core/      Rust engine compiled to libjarvis_core.so
 models/    model download scripts and local model storage (not committed)
 ```
 
+The Android package id is still `ai.jarvis`; only the assistant's name, the wake
+word and every user-facing string changed to Seven.
+
+## What's new
+
+* **Renamed to Seven.** App name, notifications, transcript labels, prompts,
+  Settings copy, the voice preset and the wake word are all "Seven". The old
+  wake word no longer matches.
+* **Conversation stays open.** After a spoken reply finishes, the microphone
+  reopens on its own, so you can simply keep talking. STOP ends it; if you go
+  quiet it stops listening and returns to standby.
+* **The microphone works every session.** Each listening session binds a fresh
+  `SpeechRecognizer` (a reused instance went deaf after one session on a Redmi
+  10), with 4 s ready and 20 s stall watchdogs that rebind instead of hanging.
+* **A bare "Seven" is not a command.** Hearing only the name keeps the session
+  open for the real instruction instead of answering the name.
+* **Tagalog.** Settings → VOICE → *Tagalog* listens with the Filipino recogniser
+  (`fil-PH`) and speaks with the installed Filipino voice; the model is told to
+  answer in whichever language you used. Unavailable voices fall back to English
+  rather than going silent.
+* **Faster replies.** The NVIDIA preset now uses
+  `nvidia/nemotron-3.5-lightning-30b-a3b`; the previous 120B vision model took
+  27–34 s per turn on a Redmi 10, this one answers in about 2 s.
+
 ## Status at a glance
 
 Honesty first — this is a complete source tree, not a store-ready product. What
-is built, and what was verified on the authoring machine:
+is built, and what was verified:
 
-| Piece | State | Verified here |
+| Piece | State | Verified |
 |---|---|---|
 | Rust control plane (session machine, sentence chunker, SSE parser, tool-call assembly, mood tags, VAD, ring buffer, encrypted store, encrypted memory, viseme DSP) | Implemented | `cargo test` (94 tests), `cargo clippy -D warnings`, `cargo bench`; cross-compiled to all 3 ABIs |
-| Remote reasoning (OpenAI-compatible SSE, model fallback, cancellation) | Implemented | Parser + request tests; no live API call |
+| Remote reasoning (OpenAI-compatible SSE, model fallback, cancellation) | Implemented | Live calls against NVIDIA NIM from a Redmi 10; first token ~0.5–2.3 s |
 | Local memory + keyless start (AES-256-GCM journal, approval policy, Settings review/export) | Implemented | Rust + JVM tests; no device run |
 | JNI boundary (`catch_unwind`, typed codes, lock-free PCM push) | Implemented | Compiles on host; only runs in a JVM |
-| Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; 41 JVM tests |
-| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug` **BUILD SUCCESSFUL** — 33.9 MB debug APK with arm64/armv7/x86_64 `.so` |
-| Voice input | Android `SpeechRecognizer` (offline-preferred) ships and works; Rust Whisper path is feature-gated | Not run on a device here |
-| Android TTS | Implemented, sentence-streamed, ducking, real word timings for visemes | Not run on a device here |
-| **Wake word** | **Not compiled.** Interface + openWakeWord pipeline documented; model download provided | — |
+| Kotlin device layer (~38 tools), Keystore, permissions, services | Implemented | `ktlint` clean; JVM tests |
+| Compose UI: orb, character face, transcript, confirmation, undo, settings, diagnostics | Implemented | `./gradlew assembleDebug`; built and installed on a Redmi 10 |
+| Voice input | Android `SpeechRecognizer`, one recogniser per session, English and Tagalog | **Verified on device**: transcripts captured across consecutive sessions |
+| Android TTS | Implemented, sentence-streamed, ducking, real word timings for visemes | **Verified on device**: `en-gb-x-gbd-local` and `fil-ph-x-fic-local` |
+| Wake word ("Seven") | Implemented with the system recogniser inside the foreground service | **Verified on device**: wake, listen, reply, re-arm |
 | **Local Qwen (GGUF)** | **Opt-in `-PlocalLlm` build.** Engine selection, Settings model import and a RAM guard are wired | Cross-compiled for arm64/armv7/x86_64; no model loaded or inference run |
 | **Piper / sherpa-onnx TTS** | **Not compiled.** `TtsEngine` seam + Piper model download only | — |
-| Device latency budget (wake/ASR/TTS/end-to-end) | Instrumented, not measured on hardware | — |
+| Device latency budget (wake/ASR/TTS/end-to-end) | Instrumented | First token and full-turn timings measured on a Redmi 10; no ASR RTF benchmark |
 
 If you need a working "speak → answer → speak" demo today, it works through the
-system recogniser and system TTS with a relay or DashScope key. The Rust Whisper build is the
-route to a guaranteed-offline ASR; see below.
+system recogniser and system TTS with a compatible endpoint key. The Rust Whisper
+build is the route to a guaranteed-offline ASR; see below.
 
 ## What it feels like
 
@@ -59,11 +84,11 @@ One full-screen surface, no app bar.
 * **Character face** — optional: layered vector head, brows/eyes/pupils/mouth,
   random blinks every 3–7 s, slow sway, mood-driven expression, visemes from the
   word the TTS engine is currently speaking.
-* **Transcript** — slides up, user in cyan, JARVIS in gold, tokens appear while
-  Qwen streams, auto-scroll pauses when you scroll up.
+* **Transcript** — slides up, user in cyan, SEVEN in gold, tokens appear while
+  the model streams, auto-scroll pauses when you scroll up.
 * **Bottom controls** — MIC/STOP (long-press force-stops), MUTE, INTERRUPT
   (kills the LLM stream and playback), TRACE/SETTINGS, plus a text field.
-* **Confirmation sheet** — "JARVIS wants to call Maria. Confirm / Cancel." with
+* **Confirmation sheet** — "SEVEN wants to call Maria. Confirm / Cancel." with
   a five-second UNDO affordance for reversible actions.
 * **Animation scale** respected: with animations disabled the orb becomes a
   static state ring and the face holds still.
@@ -114,11 +139,15 @@ android/.sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/a
 ## Configure the reasoning endpoint
 
 Open **SETTINGS → REASONING ENGINE**, pick a provider, and paste that provider's
-key. The default endpoint is the **Freebuff API**
+key. Every preset fills the endpoint and two model IDs, and **GET A KEY ↗** opens
+the provider's console. The default endpoint is the **Freebuff API**
 (`https://freebuff.com/api/v1/paid`, model `deepseek-v4.1-flash`): create
-and fund a key at <https://freebuff.com/account/api> and paste it in. Every
-preset fills the endpoint and two model IDs, and **GET A KEY ↗** opens the
-provider's console. The BlackPig relay is still available as a preset.
+and fund a key at <https://freebuff.com/account/api> and paste it in.
+
+The **NVIDIA NIM** preset (`https://integrate.api.nvidia.com/v1`) defaults to
+`nvidia/nemotron-3.5-lightning-30b-a3b` with `z-ai/glm-5.3-flash` as the
+fallback. The Llama 3.x NIM endpoints were retired in August 2026 and now answer
+`410 Gone`; the 120B vision models work but are far too slow for voice.
 
 ### Start a build already connected
 
@@ -150,7 +179,7 @@ Free tiers (`FREE TIER` row):
 | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.0-flash` |
 | Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` |
 | GitHub Models | `https://models.github.ai/inference` | `openai/gpt-4o-mini` |
-| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-70b-instruct` |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-7B-Instruct` |
 | SambaNova | `https://api.sambanova.ai/v1` | `Meta-Llama-3.3-70B-Instruct` |
 | Hugging Face | `https://router.huggingface.co/v1` | `meta-llama/Llama-3.1-8B-Instruct` |
@@ -172,11 +201,8 @@ provider's console or `GET {base_url}/models`.
 with the key in the field (or the stored one), then sends one minimal
 completion, and reports the real answer:
 `Key accepted. N models available.` plus tappable model chips, or the exact
-failure — `HTTP 401: invalid api key`, `HTTP 403: recharge_required`, an
-timeout, or a DNS error. The BlackPig relay returns
-`403 recharge_required` for accounts with no completed top-up even when the key
-is valid; complete any recharge under **Recharge** in the console sidebar and the
-same key starts working without re-entering it.
+failure — `HTTP 401: invalid api key`, `HTTP 403: recharge_required`, a timeout,
+or a DNS error.
 
 Keys are entered on the phone and kept per provider — switching from Groq to
 OpenAI and back keeps both — each encrypted with a non-exportable AES-256-GCM
@@ -186,6 +212,22 @@ the configured host receives it. `Apply & restart engine` rebuilds the native
 engine with the new endpoint. If the primary model is unknown to the account,
 the Rust backend retries once with the fallback **before** emitting any token.
 
+## Languages
+
+SEVEN understands and answers in **English** and **Tagalog (Filipino)**.
+Settings → VOICE → spoken language:
+
+| Choice | Recogniser | Voice |
+|---|---|---|
+| Phone language (default) | the phone's own locale | the voice preset's |
+| English | `en-US` | the voice preset's (British by default) |
+| Tagalog | `fil-PH` | `fil-PH`, falling back to the preset's English if no Filipino voice is installed |
+
+The wake listener uses the same recogniser language, and the model is told to
+answer in whichever language you just used. Tagalog is written by the model, so
+the accuracy of the spoken reply depends on the endpoint you pick; the platform
+recogniser needs the Google speech service (it is the default on most phones).
+
 ## Permission matrix
 
 Nothing is requested at launch. Each capability is requested the first time a
@@ -193,7 +235,7 @@ tool needs it, after a plain-English rationale.
 
 | Capability | Tools | Android permission | Requested |
 |---|---|---|---|
-| Microphone | voice input, VAD | `RECORD_AUDIO` (+ `FOREGROUND_SERVICE_MICROPHONE`) | first MIC tap |
+| Microphone | voice input, wake word, VAD | `RECORD_AUDIO` (+ `FOREGROUND_SERVICE_MICROPHONE`) | first MIC tap |
 | Notifications | ongoing service notice | `POST_NOTIFICATIONS` (API 33+) | after mic grant |
 | Calls | `call_contact`, `end_call`, `answer_call` | `CALL_PHONE`, `ANSWER_PHONE_CALLS` | first call tool |
 | Call log | `read_call_log` | `READ_CALL_LOG` | first use |
@@ -206,7 +248,7 @@ tool needs it, after a plain-English rationale.
 | DND | `set_dnd` | `ACCESS_NOTIFICATION_POLICY` (special) | Settings deep link |
 | Notifications read | `read_notifications`, `dismiss_notification` | Notification access (special) | Settings deep link |
 | Screen control | `read_screen_text`, `tap_element`, `scroll`, `close_app` | Accessibility service (special, opt-in) | Settings deep link |
-| Network | Qwen, web, navigation, smart home | `INTERNET` | install-time normal |
+| Network | reasoning, web, navigation, smart home | `INTERNET` | install-time normal |
 
 Alarms, timers, maps, media keys, battery and network status need no runtime
 permission.
@@ -220,30 +262,35 @@ permission.
   narrow the app list.
 * Accessibility is for users who explicitly enable it. This app reads screen text
   only when a tool is called, skips password fields, caps output at 4,000 chars,
-  and never sends screen text anywhere except as a tool result Qwen requested.
-  Google Play restricts accessibility use for non-accessibility purposes.
+  and never sends screen text anywhere except as a tool result the model asked
+  for. Google Play restricts accessibility use for non-accessibility purposes.
 * `WRITE_SETTINGS`, Notification access and DND access are special access: the
   app can only deep-link to the system screen.
 
 ## Voice pipeline (as shipped)
 
 ```
+"Seven" (wake listener, foreground service, fresh recogniser per session)
+        → no command after the name → open a listening session
 MIC tap → foreground service (microphone type)
-        → Android SpeechRecognizer (EXTRA_PREFER_OFFLINE)
+        → Android SpeechRecognizer (English or fil-PH, EXTRA_PREFER_OFFLINE=false)
              partials → transcript ghost line, real onRmsChanged → orb waveform
              final    → Rust submit_text
-        → Qwen SSE → token delta → sentence chunk (Rust)
+        → model SSE → token delta → sentence chunk (Rust)
         → Speak event → Android TTS queue (QUEUE_ADD), ducked focus
              UtteranceProgressListener word ranges → viseme + mouth envelope
-        → tts_done → session idle
+        → tts_done → session idle → microphone reopens for the next turn
 ```
+
+A transcript that is only the name ("Seven", "Hey Seven", "hoy Seven") does not
+reach the model; the session stays open and waits for the instruction.
 
 Barge-in: with the Rust VAD path (on-device mode), detected speech during
 Speaking cancels the `CancellationToken`, emits `BargeIn`, Kotlin stops TTS on
 the same frame and the session returns to Listening. With the system recogniser,
-INTERRUPT (or long-press MIC) does the same.
+INTERRUPT (or long-press MIC) does the same, and STOP closes the conversation.
 
-Rust owns capture framing, VAD, wake scheduling, ASR (feature), Qwen streaming,
+Rust owns capture framing, VAD, wake scheduling, ASR (feature), streaming,
 tool-call assembly, sentence chunking, prosody, session state and the encrypted
 log. Kotlin owns permissions, services and device APIs — the Rust core never
 waits on a permission dialog.
@@ -263,14 +310,13 @@ Then place `ggml-base.en.bin` in the app's `files/models/` and select
 `notConfigured` error that names the missing build step; it never pretends to
 transcribe. The partial-hypothesis strategy is documented in `core/src/asr.rs`.
 
-### Wake word (not compiled)
+### Wake word
 
-The interface and model files are ready (`core/src/wake.rs`,
-`models/download_models.sh`). The intended detector is openWakeWord:
-`melspectrogram.onnx → embedding_model.onnx → hey_jarvis_v0.1.onnx`, running on
-ONNX Runtime for Android. That runtime must be cross-compiled with the NDK,
-which the authoring machine could not do. Until then, use MIC (push-to-talk) and
-the foreground service's standby mode. This is the largest gap in the brief.
+The shipped wake word runs inside the foreground service on the platform
+recogniser: it holds the microphone while SEVEN is idle, releases it for a
+session, and re-arms 600 ms after the reply finishes. The openWakeWord pipeline
+(`core/src/wake.rs`, `models/download_models.sh`) remains the route to a fully
+offline detector; ONNX Runtime still has to be cross-compiled with the NDK.
 
 ### Local Qwen, Piper / sherpa-onnx
 
@@ -292,7 +338,7 @@ core:   cargo test        # 94 unit/integration tests
         cargo bench --bench latency
         # optional local-llm proof: ./gradlew :app:cargoNdkBuildLocalLlm
         # local APK: ./gradlew :app:assembleDebug -PlocalLlm
-android: ./android/gradlew -p android testDebugUnitTest   # 41 tests: tools, identity, self-model prompt, memory JSON
+android: ./android/gradlew -p android testDebugUnitTest   # JVM tests: tools, identity, self-model prompt, memory JSON, wake-word rules
         java -jar ktlint.jar "app/src/main/java/**/*.kt"
 ```
 
@@ -317,14 +363,15 @@ Demo script: [DEMO.md](DEMO.md).
 
 ## Limitations worth stating plainly
 
-* Wake word and local Piper are not in this build. Local Qwen requires an
-  opt-in `-PlocalLlm` build and an imported GGUF; no device benchmark exists yet.
-* Device-side latency figures (wake, ASR RTF, TTS first audio, end-to-end) and
-  the 60 fps/jank checks require hardware; they are instrumented but unmeasured.
+* Piper and the Rust Whisper ASR are not in this build; local Qwen requires an
+  opt-in `-PlocalLlm` build and an imported GGUF, with no device benchmark yet.
 * The system recogniser may use the network on some devices; the offline Whisper
-  build is the remedy.
+  build is the remedy. Tagalog needs the Google speech service and a Filipino
+  TTS voice to be installed for speech output.
+* The wake word runs on the platform recogniser, not openWakeWord; it needs the
+  foreground service to stay alive, which MIUI can kill unless autostart is
+  allowed.
 * `close_app` returns to the home screen: Android has no API to force-stop
   another app.
-* The Android UI was compiled, not visually reviewed on a device by the author.
-* The APK was built but not installed or launched on hardware here (no device
-  attached); runtime behaviour, permissions and audio paths remain unverified.
+* Verified on one device (Redmi 10, Android 13). Other OEMs' recognition and TTS
+  services may behave differently.

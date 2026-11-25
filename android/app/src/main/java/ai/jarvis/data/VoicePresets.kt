@@ -24,7 +24,7 @@ val VOICE_PRESETS =
     listOf(
         VoicePreset(
             id = "jarvis",
-            label = "Jarvis",
+            label = "Seven",
             description = "British male, dry, unhurried. Falls back to the closest en-GB voice installed.",
             locale = "en-GB",
             pitch = 0.82f,

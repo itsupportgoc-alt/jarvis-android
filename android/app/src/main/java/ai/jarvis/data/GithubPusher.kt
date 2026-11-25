@@ -50,11 +50,11 @@ class GithubPusher(
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("User-Agent", "JARVIS-Android")
+            connection.setRequestProperty("User-Agent", "SEVEN-Android")
 
             val jsonBody = """
                 {
-                    "message": "JARVIS: Update conversation memory",
+                    "message": "SEVEN: Update conversation memory",
                     "content": "${Base64.getEncoder().encodeToString(content.toByteArray(Charsets.UTF_8))}",
                     "branch": "$branch"
                     ${if (existingSha != null) ",\"sha\": \"$existingSha\"" else ""}
@@ -108,7 +108,7 @@ class GithubPusher(
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-            connection.setRequestProperty("User-Agent", "JARVIS-Android")
+            connection.setRequestProperty("User-Agent", "SEVEN-Android")
 
             if (connection.responseCode !in 200..299) return null
             val response =
@@ -133,7 +133,7 @@ class GithubPusher(
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-            connection.setRequestProperty("User-Agent", "JARVIS-Android")
+            connection.setRequestProperty("User-Agent", "SEVEN-Android")
 
             if (connection.responseCode == 404) {
                 null // File doesn't exist yet
@@ -168,7 +168,7 @@ class GithubPusher(
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $token")
-            connection.setRequestProperty("User-Agent", "JARVIS-Android")
+            connection.setRequestProperty("User-Agent", "SEVEN-Android")
 
             if (connection.responseCode in 200..299) {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))

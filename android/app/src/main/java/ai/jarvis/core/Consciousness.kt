@@ -83,12 +83,18 @@ object Consciousness {
                 if (persona) {
                     appendLine("Who you are:")
                     appendLine(
-                        "You are JARVIS on ${identity.ownerName}'s Android phone; he built you " +
+                        "You are SEVEN on ${identity.ownerName}'s Android phone; he built you " +
                             "(${identity.creator}). Your self-model is verified state, not imagination; " +
                             "speak as the same assistant across turns.",
                     )
                     appendLine()
                 }
+
+                // The model is multilingual; the microphone and voice are what
+                // decide which language arrives and leaves.
+                appendLine("Language: you understand English and Tagalog (Filipino).")
+                appendLine("Answer in the language the user just used, and do not translate unless asked.")
+                appendLine()
 
                 appendLine("Right now:")
                 appendLine(stateLine(identity, uptimeMinutes, rememberedMessages, mood, persona))

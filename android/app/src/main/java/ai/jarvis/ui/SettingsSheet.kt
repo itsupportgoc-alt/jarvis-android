@@ -11,6 +11,7 @@ import ai.jarvis.data.PROVIDER_PRESETS
 import ai.jarvis.data.ProviderPreset
 import ai.jarvis.data.ProviderTier
 import ai.jarvis.data.VOICE_PRESETS
+import ai.jarvis.audio.SpeechLanguage
 import ai.jarvis.data.VoiceInputMode
 import ai.jarvis.data.presetFor
 import ai.jarvis.data.providerPresetFor
@@ -442,6 +443,27 @@ fun SettingsSheet(
                 )
             }
             item {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SpeechLanguage.CHOICES.forEach { choice ->
+                        FilterChip(
+                            selected = settings.spokenLanguage == choice,
+                            onClick = { controller.setSpokenLanguage(choice) },
+                            label = { Text(SpeechLanguage.label(choice), style = MonoSmall) },
+                            colors = chipColors(),
+                        )
+                    }
+                }
+                Text(
+                    "Tagalog listens with the Filipino recogniser and speaks with the Filipino voice; " +
+                        "SEVEN answers in whichever language you use.",
+                    style = MonoSmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            item {
                 LabelledSlider("Rate", rate, 0.6f, 1.6f) { rate = it }
                 LabelledSlider("Pitch", pitch, 0.5f, 1.5f) { pitch = it }
                 LabelledSlider("Volume", volume, 0f, 1f) { volume = it }
@@ -512,10 +534,10 @@ fun SettingsSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Wake word \"Jarvis\"", style = MonoSmall, color = JarvisCyan)
+                        Text("Wake word \"Seven\"", style = MonoSmall, color = JarvisCyan)
                         Text(
-                            "Keeps the microphone open in a foreground service, so saying \"Jarvis ...\" " +
-                                "works with the app closed. Uses battery; on MIUI allow JARVIS to autostart " +
+                            "Keeps the microphone open in a foreground service, so saying \"Seven ...\" " +
+                                "works with the app closed. Uses battery; on MIUI allow SEVEN to autostart " +
                                 "so it comes back after a reboot.",
                             style = MonoSmall,
                         )

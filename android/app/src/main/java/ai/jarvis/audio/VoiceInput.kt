@@ -1,6 +1,7 @@
 package ai.jarvis.audio
 
 import ai.jarvis.BuildConfig
+import ai.jarvis.data.SettingsStore
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -11,7 +12,6 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
-import java.util.Locale
 
 /**
  * Voice input through Android's speech recogniser.
@@ -169,9 +169,15 @@ class VoiceInput(
                 // speech and then returns an empty transcript, which is exactly
                 // "it hears me but never answers"; offline=false avoids it.
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-                // The device language, not a hardcoded en-GB: an offline model
-                // is only usable for the locale actually installed.
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                // The device language unless Tagalog is selected, not a
+                // hardcoded en-GB: an offline model is only usable for the
+                // locale actually installed.
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    SpeechLanguage.recognitionTag(
+                        SettingsStore(context.applicationContext).current.spokenLanguage,
+                    ),
+                )
                 // Only the trailing-silence window is set. Forcing
                 // COMPLETE_SILENCE_LENGTH_MILLIS at 900 ms truncated sentences
                 // and ended sessions long before the user finished speaking.

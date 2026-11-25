@@ -1,5 +1,6 @@
 package ai.jarvis.data
 
+import ai.jarvis.audio.SpeechLanguage
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -353,14 +354,16 @@ data class JarvisSettings(
     val rate: Float = 1.0f,
     val pitch: Float = 0.85f,
     val volume: Float = 0.9f,
-    /** Prefer a male system voice; JARVIS is written as male. */
+    /** Prefer a male system voice; SEVEN is written as male. */
     val maleVoice: Boolean = true,
     val animationMode: AnimationMode = AnimationMode.ORB,
     val voiceInput: VoiceInputMode = VoiceInputMode.SYSTEM,
     val trustedTools: Set<String> = emptySet(),
     val wakeSensitivity: Float = 0.6f,
-    /** Keep the microphone open for the "Jarvis" wake phrase. */
+    /** Keep the microphone open for the "Seven" wake phrase. */
     val wakeWordEnabled: Boolean = false,
+    /** Which language the recogniser listens for and the voice speaks. */
+    val spokenLanguage: String = SpeechLanguage.AUTO,
     val webhookUrl: String = "",
     val hasApiKey: Boolean = false,
     /** Auto-confirm messaging tools so the user doesn't need to tap confirm. */
@@ -424,6 +427,7 @@ class SettingsStore(
             trustedTools = prefs.getStringSet("trusted_tools", emptySet()) ?: emptySet(),
             wakeSensitivity = prefs.getFloat("wake_sensitivity", 0.6f),
             wakeWordEnabled = prefs.getBoolean("wake_word_enabled", false),
+            spokenLanguage = prefs.getString("spoken_language", SpeechLanguage.AUTO) ?: SpeechLanguage.AUTO,
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),
             autoSendMessages = prefs.getBoolean("auto_send_messages", false),
@@ -471,6 +475,7 @@ class SettingsStore(
             .putStringSet("trusted_tools", next.trustedTools)
             .putFloat("wake_sensitivity", next.wakeSensitivity)
             .putBoolean("wake_word_enabled", next.wakeWordEnabled)
+            .putString("spoken_language", next.spokenLanguage)
             .putString("webhook_url", next.webhookUrl)
             .putBoolean("has_api_key", next.hasApiKey)
             .putBoolean("auto_send_messages", next.autoSendMessages)
@@ -510,6 +515,8 @@ class SettingsStore(
     fun setWakeSensitivity(value: Float) = update { it.copy(wakeSensitivity = value) }
 
     fun setWakeWordEnabled(enabled: Boolean) = update { it.copy(wakeWordEnabled = enabled) }
+
+    fun setSpokenLanguage(choice: String) = update { it.copy(spokenLanguage = choice) }
 
     fun setWebhook(url: String) = update { it.copy(webhookUrl = url.trim()) }
 

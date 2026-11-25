@@ -9,7 +9,7 @@ package ai.jarvis.awareness
  * capability before it has been checked.
  */
 object Identity {
-    const val NAME = "JARVIS"
+    const val NAME = "SEVEN"
     const val CREATOR = "John Lester Macabulos"
     const val OWNER_NAME = "Lester"
 }

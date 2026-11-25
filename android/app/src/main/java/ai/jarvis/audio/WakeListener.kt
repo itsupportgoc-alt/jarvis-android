@@ -1,6 +1,7 @@
 package ai.jarvis.audio
 
 import ai.jarvis.BuildConfig
+import ai.jarvis.data.SettingsStore
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -10,7 +11,6 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
-import java.util.Locale
 
 /**
  * Always-on wake phrase listening for the foreground service.
@@ -105,7 +105,10 @@ class WakeListener(
             // Explicitly request offline=false so MIUI picks a network recogniser
             // instead of the broken offline one that returns empty results.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE,
+                SpeechLanguage.recognitionTag(SettingsStore(appContext).current.spokenLanguage),
+            )
             // An always-on listener has to keep each session open long enough to
             // hear the phrase. With EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS
             // at 800 ms the recognition service ended every session about 0.75 s

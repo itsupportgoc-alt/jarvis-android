@@ -163,7 +163,7 @@ class ConversationMemory {
         val lines = ArrayDeque<String>()
         var used = 0
         for (entry in recent.asReversed()) {
-            val who = if (entry.speaker == "user") "USER" else "JARVIS"
+            val who = if (entry.speaker == "user") "USER" else "SEVEN"
             val line = "$who: ${entry.text.take(MAX_TURN_CHARS).trim()}"
             if (used + line.length > MAX_CONTEXT_CHARS) break
             used += line.length + 1
@@ -200,7 +200,7 @@ class ConversationMemory {
             }
         }
         return JSONObject()
-            .put("app", "JARVIS")
+            .put("app", "SEVEN")
             .put("sessionId", sessionId)
             .put("updatedAt", System.currentTimeMillis())
             .put("messages", messages)

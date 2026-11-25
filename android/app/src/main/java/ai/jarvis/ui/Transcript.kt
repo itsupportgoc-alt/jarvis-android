@@ -62,7 +62,7 @@ fun TranscriptPanel(
     ) {
         items(lines, key = { it.id }) { line ->
             TranscriptRow(
-                label = if (line.speaker == Speaker.USER) "YOU" else "JARVIS",
+                label = if (line.speaker == Speaker.USER) "YOU" else "SEVEN",
                 text = line.text,
                 color = if (line.speaker == Speaker.USER) JarvisCyan else JarvisGold,
             )
@@ -88,7 +88,7 @@ fun TranscriptPanel(
 @Composable
 private fun AssistantStreaming(text: String) {
     TranscriptRow(
-        label = "JARVIS",
+        label = "SEVEN",
         text = "$text▍",
         color = JarvisGold,
     )
