@@ -26,6 +26,7 @@ import android.util.Log
 class WakeListener(
     context: Context,
     private val onWake: (command: String) -> Unit,
+    private val onStop: (spoken: String) -> Unit,
     private val onUnavailable: (String) -> Unit,
 ) {
     private val appContext = context.applicationContext
@@ -165,7 +166,18 @@ class WakeListener(
         )
     }
 
-    private fun handleTranscript(text: String) = dispatchWakeTranscript(text, onWake)
+    /**
+     * A spoken "stop" is a control phrase, not a command for the model, so it
+     * is checked before the wake word and interrupts the current turn.
+     */
+    private fun handleTranscript(text: String) {
+        if (WakeWord.isStop(text)) {
+            Log.i(TAG, "spoken stop: \"$text\"")
+            onStop(text)
+            return
+        }
+        dispatchWakeTranscript(text, onWake)
+    }
 
     private val listener =
         object : RecognitionListener {
@@ -245,7 +257,9 @@ class WakeListener(
                     // A partial that is only the wake word must not fire: it would
                     // open a new session and throw away the sentence still being
                     // spoken. Wait for the words after "Jarvis".
-                    if (!WakeWord.command(text).isNullOrBlank()) handleTranscript(text)
+                    if (WakeWord.isStop(text) || !WakeWord.command(text).isNullOrBlank()) {
+                        handleTranscript(text)
+                    }
                 }
             }
 

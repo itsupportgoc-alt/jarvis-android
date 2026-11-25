@@ -39,6 +39,31 @@ object WakeWord {
         return words.all { it == "seven" || it == "7" || it in FILLER }
     }
 
+    /** Words that mean "stop talking / abandon this turn". */
+    private val STOP_WORDS = setOf("stop", "cancel", "quiet", "enough", "halt")
+
+    /**
+     * True when the utterance is a spoken stop, not a request.
+     *
+     * Deliberately strict: one meaningful word ("stop", "stop it", "please
+     * stop", "seven stop") or the phrase "shut up". The microphone stays open
+     * while SEVEN is thinking or speaking, so the assistant's own voice can be
+     * transcribed; a stricter match keeps a sentence that merely contains
+     * "stop" from cancelling the reply.
+     */
+    fun isStop(transcript: String): Boolean {
+        val words =
+            transcript
+                .lowercase()
+                .replace(Regex("[^a-z ]"), " ")
+                .split(' ')
+                .filter { it.isNotEmpty() }
+        if (words.isEmpty() || words.size > 4) return false
+        if (words == listOf("shut", "up")) return true
+        val meaningful = words.filterNot { it == "seven" || it == "it" || it == "now" || it == "please" || it in FILLER }
+        return meaningful.size == 1 && meaningful.first() in STOP_WORDS
+    }
+
     /**
      * @return null when the transcript does not contain the wake word, an empty
      *   string when only the wake word was said, or the trailing instruction.

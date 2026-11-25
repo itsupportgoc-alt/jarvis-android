@@ -67,6 +67,29 @@ class WakeWordTest {
     }
 
     @Test
+    fun spokenStopIsRecognised() {
+        assertTrue(WakeWord.isStop("stop"))
+        assertTrue(WakeWord.isStop("Stop."))
+        assertTrue(WakeWord.isStop("stop it"))
+        assertTrue(WakeWord.isStop("please stop now"))
+        assertTrue(WakeWord.isStop("Seven, stop!"))
+        assertTrue(WakeWord.isStop("cancel"))
+        assertTrue(WakeWord.isStop("shut up"))
+        assertTrue(WakeWord.isStop("quiet"))
+    }
+
+    @Test
+    fun aSentenceThatOnlyMentionsStoppingIsNotAStop() {
+        // The assistant's own reply can be transcribed while the microphone is
+        // open during speech, so a mention must not cancel the turn.
+        assertFalse(WakeWord.isStop("the bus will stop at the corner"))
+        assertFalse(WakeWord.isStop("stop the timer at five minutes"))
+        assertFalse(WakeWord.isStop("what is the bus stop"))
+        assertFalse(WakeWord.isStop(""))
+        assertFalse(WakeWord.isStop("open camera"))
+    }
+
+    @Test
     fun anythingWithAnInstructionIsACommand() {
         assertFalse(WakeWord.isWakeOnly("Seven open camera"))
         assertFalse(WakeWord.isWakeOnly("hey seven what's the weather"))

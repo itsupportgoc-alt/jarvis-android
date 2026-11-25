@@ -99,7 +99,7 @@ class JarvisService : Service() {
         if (BuildConfig.DEBUG && intent?.action == ACTION_DEBUG_TRANSCRIPT) {
             val text = intent.getStringExtra(EXTRA_TRANSCRIPT).orEmpty()
             Log.i(TAG, "debug transcript injected: \"$text\"")
-            dispatchWakeTranscript(text, ::onWake)
+            if (ai.jarvis.audio.WakeWord.isStop(text)) onSpokenStop(text) else dispatchWakeTranscript(text, ::onWake)
         }
         return START_STICKY
     }
@@ -128,8 +128,9 @@ class JarvisService : Service() {
 
     /**
      * The wake recogniser and an active session cannot both hold the microphone,
-     * so the wake word stands down while JARVIS is listening, thinking or
-     * speaking, and comes back once it is idle again.
+     * so the listener stands down only while JARVIS is listening. During
+     * thinking and speaking the microphone is free again, and the listener keeps
+     * running so a spoken "stop" can interrupt the reply.
      */
     private fun watchPhase() {
         if (phaseWatcher != null) return
@@ -139,7 +140,7 @@ class JarvisService : Service() {
                     .map { it.phase }
                     .distinctUntilChanged()
                     .collect { phase ->
-                        if (phase == Phase.IDLE) scheduleWakeSync() else pauseWake()
+                        if (phase == Phase.LISTENING) pauseWake() else scheduleWakeSync()
                     }
             }
     }
@@ -157,7 +158,7 @@ class JarvisService : Service() {
         wakeSyncJob =
             scope.launch {
                 delay(WAKE_REARM_DELAY_MS)
-                if (controller().ui.value.phase != Phase.IDLE) return@launch
+                if (controller().ui.value.phase == Phase.LISTENING) return@launch
                 syncWakeListener()
             }
     }
@@ -186,14 +187,32 @@ class JarvisService : Service() {
             WakeListener(
                 this,
                 onWake = ::onWake,
+                onStop = ::onSpokenStop,
                 onUnavailable = { message -> Log.w(TAG, message) },
             )
         wake = listener
         if (!listener.start()) wake = null
     }
 
+    /**
+     * "Stop" said while SEVEN is thinking or speaking drops the turn: the reply
+     * stops mid-sentence and the microphone comes back armed.
+     */
+    private fun onSpokenStop(spoken: String) {
+        Log.i(TAG, "spoken stop \"$spoken\"; cancelling the turn")
+        controller().cancel()
+    }
+
     /** Runs the instruction the user said after the wake phrase. */
     private fun onWake(command: String) {
+        val phase = controller().ui.value.phase
+        // The listener keeps the microphone while SEVEN is thinking or speaking
+        // so it can hear "stop". That also means it can hear SEVEN itself, so a
+        // wake match during a reply is the assistant's own voice and is dropped.
+        if (phase == Phase.SPEAKING || phase == Phase.THINKING) {
+            Log.i(TAG, "wake matched during $phase; ignoring, the reply would wake itself")
+            return
+        }
         Log.i(TAG, "wake matched, command=\"$command\"")
         // Release the wake recogniser before a session needs the microphone;
         // `watchPhase` brings it back when JARVIS is idle.

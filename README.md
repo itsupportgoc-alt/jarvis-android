@@ -101,6 +101,12 @@ One full-screen surface, no app bar.
 * **Character face** — optional: layered vector head, brows/eyes/pupils/mouth,
   random blinks every 3–7 s, slow sway, mood-driven expression, visemes from the
   word the TTS engine is currently speaking.
+* **Say "stop"** — while SEVEN is thinking or reading a reply, saying *stop*,
+  *stop it*, *cancel*, *quiet*, *enough* or *shut up* cuts the reply off at once
+  and drops the turn. SEVEN stops talking on its own instead of you waiting it
+  out. The wake word stays armed afterwards, so *"Seven …"* starts again. While
+  the reply is running, wake matches are ignored (the microphone can hear SEVEN
+  itself); only the stop words act.
 * **Transcript** — slides up, user in cyan, SEVEN in gold, tokens appear while
   the model streams. It stays pinned to the newest line, so a reply is visible
   without scrolling; dragging up pauses the follow, dragging back resumes it.

@@ -226,6 +226,12 @@ class JarvisController(
                 }
 
                 override fun onFinal(text: String) {
+                    // A spoken "stop" while the microphone is open ends the turn
+                    // instead of being sent to the model as a request.
+                    if (WakeWord.isStop(text)) {
+                        cancel()
+                        return
+                    }
                     if (WakeWord.isWakeOnly(text)) {
                         rePromptForCommand()
                         return
