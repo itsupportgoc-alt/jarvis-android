@@ -20,7 +20,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,8 +33,11 @@ import androidx.compose.ui.unit.sp
 /**
  * Transcript. Assistant in gold, user in cyan, partial hypotheses dimmed.
  *
- * Auto-scroll follows new content only while the user is already at the bottom;
- * scrolling up pauses it, and returning to the bottom resumes.
+ * The view stays pinned to the newest line: a reply is always visible without
+ * scrolling. Pinning follows the user's intent, not the scroll position —
+ * checking `canScrollForward` after content had already grown always reported
+ * "not at the bottom", which is why the reply used to end up below the fold.
+ * Dragging up pauses the follow; dragging back to the bottom resumes it.
  */
 @Composable
 fun TranscriptPanel(
@@ -41,16 +47,28 @@ fun TranscriptPanel(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
-    val atBottom by remember {
-        derivedStateOf { !listState.canScrollForward }
-    }
-    val extra = (if (streaming.isNotBlank()) 1 else 0) + (if (partial.isNotBlank()) 1 else 0)
 
-    LaunchedEffect(lines.size, streaming.length, partial.length) {
-        if (atBottom && (lines.isNotEmpty() || extra > 0)) {
-            val target = (lines.size + extra - 1).coerceAtLeast(0)
-            listState.animateScrollToItem(target)
-        }
+    /** True while the transcript should follow new content. */
+    var follow by remember { mutableStateOf(true) }
+
+    // Only a real drag changes the intent: scrolling up unpins, reaching the
+    // bottom again re-pins. Programmatic scrolls land at the bottom, so they
+    // leave it pinned either way.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (scrolling, canForward) ->
+                if (scrolling) follow = !canForward
+            }
+    }
+
+    val itemCount by remember {
+        derivedStateOf { listState.layoutInfo.totalItemsCount }
+    }
+
+    // The count is read from layout, so this runs after the new item exists and
+    // cannot ask for an index the list does not have yet.
+    LaunchedEffect(lines.size, streaming.length, partial.length, itemCount) {
+        if (follow && itemCount > 0) listState.scrollToItem(itemCount - 1)
     }
 
     LazyColumn(

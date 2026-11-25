@@ -102,7 +102,8 @@ One full-screen surface, no app bar.
   random blinks every 3–7 s, slow sway, mood-driven expression, visemes from the
   word the TTS engine is currently speaking.
 * **Transcript** — slides up, user in cyan, SEVEN in gold, tokens appear while
-  the model streams, auto-scroll pauses when you scroll up.
+  the model streams. It stays pinned to the newest line, so a reply is visible
+  without scrolling; dragging up pauses the follow, dragging back resumes it.
 * **Bottom controls** — MIC/STOP (long-press force-stops), MUTE, INTERRUPT
   (kills the LLM stream and playback), TRACE/SETTINGS, plus a text field.
 * **Confirmation sheet** — "SEVEN wants to call Maria. Confirm / Cancel." with
