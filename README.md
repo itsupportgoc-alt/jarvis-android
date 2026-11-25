@@ -318,8 +318,11 @@ reach the model; the session stays open and waits for the instruction.
 
 Barge-in: with the Rust VAD path (on-device mode), detected speech during
 Speaking cancels the `CancellationToken`, emits `BargeIn`, Kotlin stops TTS on
-the same frame and the session returns to Listening. With the system recogniser,
-INTERRUPT (or long-press MIC) does the same, and STOP closes the conversation.
+the same frame and the session returns to Listening. With the system recogniser
+the wake listener keeps the microphone during Thinking and Speaking and matches
+short stop phrases ("stop", "stop it", "cancel", "quiet", "enough", "shut up"),
+which cancel the turn; INTERRUPT (or long-press MIC) does the same from the UI,
+and STOP closes the conversation.
 
 Rust owns capture framing, VAD, wake scheduling, ASR (feature), streaming,
 tool-call assembly, sentence chunking, prosody, session state and the encrypted
@@ -344,8 +347,10 @@ transcribe. The partial-hypothesis strategy is documented in `core/src/asr.rs`.
 ### Wake word
 
 The shipped wake word runs inside the foreground service on the platform
-recogniser: it holds the microphone while SEVEN is idle, releases it for a
-session, and re-arms 600 ms after the reply finishes. The openWakeWord pipeline
+recogniser: it holds the microphone while SEVEN is idle, gives it up only for a
+listening session, and takes it back 600 ms after the session ends. It also
+stays armed while SEVEN is thinking or speaking, which is what lets a spoken
+"stop" interrupt a reply. The openWakeWord pipeline
 (`core/src/wake.rs`, `models/download_models.sh`) remains the route to a fully
 offline detector; ONNX Runtime still has to be cross-compiled with the NDK.
 
