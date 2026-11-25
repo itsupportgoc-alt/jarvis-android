@@ -393,10 +393,15 @@ Demo script: [DEMO.md](DEMO.md).
   build is the remedy. Tagalog needs the Google speech service and a Filipino
   TTS voice to be installed for speech output.
 * The wake word runs on the platform recogniser, not openWakeWord; it needs the
-  foreground service to stay alive. MIUI battery optimisation can still kill
-  it, so allow SEVEN under Autostart and set battery saver to “No restrictions”.
-  Holding the microphone all day also costs battery — that is the trade for
-  always listening.
+  foreground service to stay alive. Holding the microphone all day also costs
+  battery — that is the trade for always listening.
+* MIUI can still kill the service on its own schedule. On a Redmi, enable
+  **Settings → Apps → Manage apps → SEVEN → Autostart**, set **Battery saver →
+  No restrictions**, and lock SEVEN in the recents screen. The app schedules a
+  wake-alarm restart when its task is swiped away, retries up to four times if
+  Android or MIUI refuses the background start, and logs every attempt under the
+  `JarvisWakeBoot` tag, so `adb logcat -s JarvisWakeBoot JarvisService` says
+  exactly what happened.
 * `close_app` returns to the home screen: Android has no API to force-stop
   another app.
 * Verified on one device (Redmi 10, Android 13). Other OEMs' recognition and TTS
