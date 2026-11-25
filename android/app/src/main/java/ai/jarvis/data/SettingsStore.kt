@@ -96,8 +96,11 @@ val PROVIDER_PRESETS: List<ProviderPreset> =
             id = "nvidia",
             label = "NVIDIA NIM",
             baseUrl = "https://integrate.api.nvidia.com/v1",
-            model = "meta/llama-3.1-70b-instruct",
-            fallback = "meta/llama-3.1-8b-instruct",
+            // Llama 3.x NIM endpoints were retired in August 2026, so the old
+            // ids here answered 410 Gone. Lightning is the fast chat model on
+            // the same catalog and the 120B VL is far too slow for voice.
+            model = "nvidia/nemotron-3.5-lightning-30b-a3b",
+            fallback = "z-ai/glm-5.3-flash",
             tier = ProviderTier.FREE,
             consoleUrl = "https://build.nvidia.com/",
             note = "Free credits; NVIDIA keys start with nvapi-.",
