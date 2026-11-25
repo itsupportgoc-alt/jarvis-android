@@ -55,6 +55,40 @@ class VoiceInput(
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
 
+    /**
+     * True once this session's recogniser reported it is actually ready.
+     *
+     * On the Redmi 10 a recogniser instance is good for exactly one session:
+     * the second `startListening` on the same object binds nothing and never
+     * delivers a single callback, so the orb sits there and "cannot hear you".
+     * Every session therefore gets a brand new instance, and a session that
+     * never becomes ready is rebound instead of hanging.
+     */
+    private var sessionReady = false
+    private var startAttempts = 0
+
+    private val readyWatchdog =
+        Runnable {
+            if (settled || !listening || sessionReady) return@Runnable
+            Log.w(TAG, "recogniser never became ready; rebinding")
+            listener.onLevel(0f)
+            if (startAttempts < MAX_START_ATTEMPTS) {
+                startAttempts += 1
+                if (!openSession()) {
+                    settled = true
+                    listening = false
+                    listener.onError("The speech recogniser is not responding. Tap MIC to try again.", true)
+                    listener.onEnded()
+                }
+            } else {
+                settled = true
+                listening = false
+                handler.removeCallbacksAndMessages(null)
+                listener.onError("The speech recogniser is not responding. Tap MIC to try again.", true)
+                listener.onEnded()
+            }
+        }
+
     /** True while a platform session is open. */
     val isActive: Boolean get() = listening
 
@@ -95,15 +129,34 @@ class VoiceInput(
             listener.onError("This device has no speech recognition service.", false)
             return false
         }
-        val engine =
-            recognizer ?: createRecognition(context).also {
-                it.setRecognitionListener(recognition)
-                recognizer = it
-            }
-        if (listening) runCatching { engine.cancel() }
         handler.removeCallbacksAndMessages(null)
         lastPartial = ""
         settled = false
+        cancelled = false
+        startAttempts = 0
+        listening = true
+        return openSession()
+    }
+
+    /**
+     * Binds a fresh recogniser and opens one listening session.
+     *
+     * A reused recogniser is the bug behind "it heard me once, then it can't
+     * hear me": the platform keeps the object alive but its service connection
+     * is gone, so startListening is accepted and then silently dead. Recreating
+     * per session costs one bind and always works.
+     */
+    private fun openSession(): Boolean {
+        recycle()
+        sessionReady = false
+        val engine =
+            runCatching { createRecognition(context) }.getOrNull()
+                ?: run {
+                    Log.w(TAG, "could not create a recogniser")
+                    return false
+                }
+        engine.setRecognitionListener(recognition)
+        recognizer = engine
         val intent =
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
@@ -124,10 +177,22 @@ class VoiceInput(
                 // and ended sessions long before the user finished speaking.
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             }
-        cancelled = false
-        listening = true
-        engine.startListening(intent)
+        val started = runCatching { engine.startListening(intent) }
+        if (started.isFailure) {
+            Log.w(TAG, "startListening failed", started.exceptionOrNull())
+            return false
+        }
+        handler.postDelayed(readyWatchdog, READY_TIMEOUT_MS)
         return true
+    }
+
+    /** Drops the current instance; its late callbacks are ignored. */
+    private fun recycle() {
+        val old = recognizer ?: return
+        recognizer = null
+        runCatching { old.setRecognitionListener(null) }
+        runCatching { old.cancel() }
+        runCatching { old.destroy() }
     }
 
     fun stop() {
@@ -140,13 +205,14 @@ class VoiceInput(
         cancelled = true
         listening = false
         handler.removeCallbacksAndMessages(null)
-        runCatching { recognizer?.cancel() }
+        recycle()
     }
 
     fun shutdown() {
-        cancel()
-        recognizer?.destroy()
-        recognizer = null
+        cancelled = true
+        listening = false
+        handler.removeCallbacksAndMessages(null)
+        recycle()
     }
 
     /** Single exit for a successful transcript: no double submission. */
@@ -164,6 +230,8 @@ class VoiceInput(
     private val recognition =
         object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                sessionReady = true
+                handler.removeCallbacks(readyWatchdog)
                 if (BuildConfig.DEBUG) Log.d(TAG, "ready for speech")
             }
 
@@ -290,6 +358,12 @@ class VoiceInput(
 
         /** Grace period between end of speech and the partial fallback. */
         const val END_OF_SPEECH_GRACE_MS = 2_500L
+
+        /** A session that never reports ready is rebound after this. */
+        const val READY_TIMEOUT_MS = 4_000L
+
+        /** How many times a dead session is rebound before giving up. */
+        const val MAX_START_ATTEMPTS = 2
     }
 }
 

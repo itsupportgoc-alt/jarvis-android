@@ -36,6 +36,25 @@ class WakeListener(
     private var running = false
     private var restartQueued = false
 
+    /** True once the current session produced any callback at all. */
+    private var sawCallback = false
+
+    /**
+     * Fires when a session was opened but the recogniser never answered.
+     *
+     * On this device a recogniser instance can go deaf after its service is
+     * rebound by the system (the app still shows a live wake listener, but
+     * "Jarvis" is never heard again). A session with no callback at all is
+     * therefore treated as a dead instance and replaced.
+     */
+    private val stallWatchdog =
+        Runnable {
+            if (!running || sawCallback) return@Runnable
+            Log.w(TAG, "no recogniser callback; rebinding a fresh instance")
+            recycle()
+            restart(100)
+        }
+
     fun start(): Boolean {
         if (running) return true
         if (preferredRecognitionService(appContext) == null &&
@@ -45,10 +64,6 @@ class WakeListener(
             return false
         }
         running = true
-        recognizer =
-            createRecognition(appContext).also {
-                it.setRecognitionListener(listener)
-            }
         Log.i(TAG, "wake listener started")
         listen()
         return true
@@ -59,9 +74,17 @@ class WakeListener(
         running = false
         handler.removeCallbacksAndMessages(null)
         restartQueued = false
-        runCatching { recognizer?.cancel() }
-        runCatching { recognizer?.destroy() }
+        recycle()
+    }
+
+    /** Drops the current instance; its late callbacks are ignored. */
+    private fun recycle() {
+        handler.removeCallbacks(stallWatchdog)
+        val old = recognizer ?: return
         recognizer = null
+        runCatching { old.setRecognitionListener(null) }
+        runCatching { old.cancel() }
+        runCatching { old.destroy() }
     }
 
     private fun intent() =
@@ -97,10 +120,26 @@ class WakeListener(
 
     private fun listen() {
         if (!running) return
+        // A brand new recogniser per session: reusing one leaves it deaf after
+        // the system rebinds the recognition service.
+        if (recognizer == null) {
+            recognizer =
+                runCatching { createRecognition(appContext) }.getOrNull()
+                    ?.also { it.setRecognitionListener(listener) }
+        }
+        if (recognizer == null) {
+            Log.w(TAG, "no recogniser available for the wake word")
+            restart(2_000)
+            return
+        }
         Log.d(TAG, "session start requested")
+        sawCallback = false
+        handler.removeCallbacks(stallWatchdog)
+        handler.postDelayed(stallWatchdog, STALL_TIMEOUT_MS)
         val result = runCatching { recognizer?.startListening(intent()) }
         if (result.exceptionOrNull() != null) {
             Log.w(TAG, "wake startListening failed", result.exceptionOrNull())
+            recycle()
             restart(600)
         }
     }
@@ -123,9 +162,14 @@ class WakeListener(
 
     private val listener =
         object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onReadyForSpeech(params: Bundle?) {
+                sawCallback = true
+                handler.removeCallbacks(stallWatchdog)
+            }
 
-            override fun onBeginningOfSpeech() = Unit
+            override fun onBeginningOfSpeech() {
+                sawCallback = true
+            }
 
             override fun onRmsChanged(rmsdB: Float) = Unit
 
@@ -134,6 +178,8 @@ class WakeListener(
             override fun onEndOfSpeech() = Unit
 
             override fun onError(error: Int) {
+                val wasSawCallback = sawCallback
+                sawCallback = true
                 val busy = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
                 val denied = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
                 if (denied) {
@@ -145,10 +191,21 @@ class WakeListener(
                 // codes such as 11 from some recogniser backends) is routine; the
                 // listener re-arms and keeps trying.
                 Log.d(TAG, "wake session ended with error $error")
+                // A client error or a session that never even got ready means
+                // this instance is no longer usable; the next session needs a
+                // fresh one.
+                if (!wasSawCallback ||
+                    error == SpeechRecognizer.ERROR_CLIENT ||
+                    busy
+                ) {
+                    recycle()
+                }
                 restart(if (busy) 800 else 200)
             }
 
             override fun onResults(results: Bundle?) {
+                sawCallback = true
+                handler.removeCallbacks(stallWatchdog)
                 val text =
                     results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -160,6 +217,8 @@ class WakeListener(
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                sawCallback = true
+                handler.removeCallbacks(stallWatchdog)
                 val text =
                     partialResults
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -182,6 +241,9 @@ class WakeListener(
 
     private companion object {
         const val TAG = WAKE_LOG_TAG
+
+        /** A session with no callback at all is replaced after this. */
+        const val STALL_TIMEOUT_MS = 20_000L
     }
 }
 
