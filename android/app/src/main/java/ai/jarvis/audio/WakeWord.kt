@@ -10,8 +10,14 @@ package ai.jarvis.audio
 object WakeWord {
     private val WAKE = Regex("\\b(?:hey\\s+)?seven\\b", RegexOption.IGNORE_CASE)
 
-    /** Words that may accompany the name without forming a command. */
-    private val FILLER = setOf("hey", "ok", "okay", "yo", "hoy")
+    /**
+     * Words that may accompany the name without forming a command.
+     *
+     * "play" is here because the recogniser on the test phone transcribes the
+     * greeting "Hey Seven" as "Play Seven" (and "Play 7"); without it that
+     * became a bogus command sent to the model instead of the wake word.
+     */
+    private val FILLER = setOf("hey", "ok", "okay", "yo", "hoy", "play")
 
     /**
      * True when the transcript is nothing but the name, e.g. "Seven",
@@ -25,11 +31,12 @@ object WakeWord {
         val words =
             transcript
                 .lowercase()
-                .replace(Regex("[^a-z ]"), " ")
+                // Digits stay: the recogniser often writes the name as "7".
+                .replace(Regex("[^a-z0-9 ]"), " ")
                 .split(' ')
                 .filter { it.isNotEmpty() }
-        if (words.isEmpty() || "seven" !in words) return false
-        return words.all { it == "seven" || it in FILLER }
+        if (words.none { it == "seven" || it == "7" }) return false
+        return words.all { it == "seven" || it == "7" || it in FILLER }
     }
 
     /**

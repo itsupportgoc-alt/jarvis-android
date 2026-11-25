@@ -45,6 +45,12 @@ word and every user-facing string changed to Seven.
   (`fil-PH`) and speaks with the installed Filipino voice; the model is told to
   answer in whichever language you used. Unavailable voices fall back to English
   rather than going silent.
+* **Speech tuned for misheard words.** The recogniser keeps the microphone open
+  for the first 1.2 s of speech and 2 s of trailing silence, waits 3.5 s for a
+  real final result, and treats "Play Seven" / "Play 7" (what this phone returns
+  for "Hey Seven") as the name rather than a command. The model is told the
+  transcript can be misheard and now asks a short clarifying question instead of
+  guessing.
 * **Faster replies.** The NVIDIA preset now uses
   `nvidia/nemotron-3.5-lightning-30b-a3b`; the previous 120B vision model took
   27–34 s per turn on a Redmi 10, this one answers in about 2 s.
@@ -382,3 +388,7 @@ Demo script: [DEMO.md](DEMO.md).
   another app.
 * Verified on one device (Redmi 10, Android 13). Other OEMs' recognition and TTS
   services may behave differently.
+* Recognition accuracy is the platform speech service's, not the app's: with a
+  strong accent the transcript can still be wrong. The app compensates by asking
+  for clarification rather than acting on a garbled command; it cannot improve
+  the acoustic model. Typing the command always works.

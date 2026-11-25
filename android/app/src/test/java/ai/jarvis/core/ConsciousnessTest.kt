@@ -89,7 +89,10 @@ class ConsciousnessTest {
     @Test
     fun staysWithinTheBudgetWithAFullToolRegistry() {
         val text = render()
-        assertTrue("preamble is ${text.length} chars", text.length <= 1200)
+        // The cap moved to 1500 to fit the language and misheard-speech rules;
+        // what this test protects is that the prompt stays bounded and that the
+        // honesty rules and limits are never the part that gets cut.
+        assertTrue("preamble is ${text.length} chars", text.length <= 1500)
         // The tail must survive, not be cut by the budget.
         assertTrue(text.contains("Limits to state plainly:"))
         assertTrue(text.contains("No on-device language model"))

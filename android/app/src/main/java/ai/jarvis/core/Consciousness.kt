@@ -20,8 +20,12 @@ import ai.jarvis.awareness.IdentitySnapshot
  * that stop the model from inventing success.
  */
 object Consciousness {
-    /** Hard cap: the preamble must never eat the prompt budget. */
-    private const val MAX_CHARS = 1200
+    /**
+     * Hard cap: the preamble must never eat the prompt budget. Raised from 1200
+     * once the language and misheard-speech rules were added; it stays small
+     * enough that it costs a fraction of a second on the 30B endpoint.
+     */
+    private const val MAX_CHARS = 1500
 
     private const val MAX_AVAILABLE = 5
     private const val MAX_UNAVAILABLE = 4
@@ -90,10 +94,12 @@ object Consciousness {
                     appendLine()
                 }
 
-                // The model is multilingual; the microphone and voice are what
-                // decide which language arrives and leaves.
-                appendLine("Language: you understand English and Tagalog (Filipino).")
-                appendLine("Answer in the language the user just used, and do not translate unless asked.")
+                // Multilingual model; the microphone and voice decide which
+                // language arrives and leaves. Speech arrives misheard often.
+                appendLine("Language: answer in English or Tagalog, matching the user's.")
+                appendLine(
+                    "Speech may be misheard; ask a short clarifying question instead of guessing.",
+                )
                 appendLine()
 
                 appendLine("Right now:")

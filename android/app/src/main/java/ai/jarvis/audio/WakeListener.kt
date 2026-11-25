@@ -122,7 +122,7 @@ class WakeListener(
             // trailing-silence window is set now, so a session stays open until
             // the phrase is heard or the recogniser's own no-speech timeout
             // expires.
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
         }
 
     private fun listen() {

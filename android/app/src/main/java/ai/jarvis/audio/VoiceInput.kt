@@ -185,7 +185,12 @@ class VoiceInput(
                 // Only the trailing-silence window is set. Forcing
                 // COMPLETE_SILENCE_LENGTH_MILLIS at 900 ms truncated sentences
                 // and ended sessions long before the user finished speaking.
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                // It is a little longer than before: cutting the end of a word
+                // is what turned "close Facebook" into gibberish.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+                // Keep the microphone open for the first moment of speech so a
+                // short word is not clipped before the utterance is registered.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1200L)
             }
         val started = runCatching { engine.startListening(intent) }
         if (started.isFailure) {
@@ -377,7 +382,7 @@ class VoiceInput(
         const val TAG = "JarvisVoice"
 
         /** Grace period between end of speech and the partial fallback. */
-        const val END_OF_SPEECH_GRACE_MS = 2_500L
+        const val END_OF_SPEECH_GRACE_MS = 3_500L
 
         /** A session that never reports ready is rebound after this. */
         const val READY_TIMEOUT_MS = 4_000L

@@ -61,6 +61,9 @@ class WakeWordTest {
         assertTrue(WakeWord.isWakeOnly("Hey Seven?"))
         assertTrue(WakeWord.isWakeOnly(" okay, Seven! "))
         assertTrue(WakeWord.isWakeOnly("hoy seven"))
+        // What the recogniser on the test phone actually returns for "Hey Seven".
+        assertTrue(WakeWord.isWakeOnly("Play seven"))
+        assertTrue(WakeWord.isWakeOnly("play 7"))
     }
 
     @Test
