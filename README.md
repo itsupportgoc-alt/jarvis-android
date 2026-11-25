@@ -41,6 +41,12 @@ word and every user-facing string changed to Seven.
   default and runs in a microphone foreground service that survives leaving or
   swiping away the app (an alarm brings it back), and reboots. STOP on the
   notification ends it.
+* **Waking is one tap away, and the mic is never a mystery.** The main screen
+  shows `MIC HELD` / `MIC OFF` next to the phase and a `WAKE ON` / `WAKE OFF`
+  button in the header, and the ongoing notification carries the same switch
+  (`Wake off` / `Wake on`) next to `Stop`, with the text saying the microphone
+  is being held. Turning it off stops the service, removes the notification and
+  releases the microphone — the status-bar mic indicator goes away with it.
 * **The microphone works every session.** Each listening session binds a fresh
   `SpeechRecognizer` (a reused instance went deaf after one session on a Redmi
   10), with 4 s ready and 20 s stall watchdogs that rebind instead of hanging.

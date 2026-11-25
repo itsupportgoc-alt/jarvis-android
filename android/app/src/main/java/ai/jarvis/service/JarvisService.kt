@@ -63,6 +63,24 @@ class JarvisService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // The notification's own toggle: no trip through Settings needed.
+        if (intent?.action == ACTION_SET_WAKE) {
+            val enable = intent.getBooleanExtra(EXTRA_WAKE, false)
+            Log.i(TAG, "notification asked for wake=$enable")
+            // Disabling stops this service from the controller, which removes
+            // the notification and releases the microphone.
+            controller().setWakeWordEnabled(enable)
+            if (enable) {
+                // Rebuild now that the text and action label changed.
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                )
+                syncWakeListener()
+            }
+            return START_STICKY
+        }
 
         startForeground(
             NOTIFICATION_ID,
@@ -241,6 +259,15 @@ class JarvisService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         val wakeOn = controller().settings.value.wakeWordEnabled
+        val toggleWake =
+            PendingIntent.getService(
+                this,
+                2,
+                Intent(this, JarvisService::class.java)
+                    .setAction(ACTION_SET_WAKE)
+                    .putExtra(EXTRA_WAKE, !wakeOn),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         return NotificationCompat
             .Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_jarvis)
@@ -256,7 +283,17 @@ class JarvisService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .addAction(0, getString(R.string.notification_stop), stop)
+            .addAction(
+                0,
+                getString(
+                    if (wakeOn) {
+                        R.string.notification_wake_off_action
+                    } else {
+                        R.string.notification_wake_on_action
+                    },
+                ),
+                toggleWake,
+            ).addAction(0, getString(R.string.notification_stop), stop)
             .build()
     }
 
@@ -268,6 +305,8 @@ class JarvisService : Service() {
         private const val CHANNEL_ID = "jarvis_listening"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "ai.jarvis.STOP"
+        private const val ACTION_SET_WAKE = "ai.jarvis.SET_WAKE"
+        private const val EXTRA_WAKE = "wake_enabled"
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(

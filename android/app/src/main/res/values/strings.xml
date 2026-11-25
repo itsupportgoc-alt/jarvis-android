@@ -4,10 +4,12 @@
     <string name="accessibility_label">SEVEN screen control</string>
     <string name="notification_channel_listening">Listening</string>
     <string name="notification_listening_title">SEVEN is standing by</string>
-    <string name="notification_listening_text">Microphone held by the assistant. Tap to open.</string>
+    <string name="notification_listening_text">Microphone is being held by an active session. Tap to open.</string>
     <string name="notification_stop">Stop</string>
     <string name="notification_wake_title">SEVEN is listening for its name</string>
-    <string name="notification_wake_text">Say \"Seven\" then your instruction. Microphone stays open.</string>
+    <string name="notification_wake_text">Microphone is being held for the wake word. Say \"Seven\" or turn it off here.</string>
+    <string name="notification_wake_off_action">Wake off</string>
+    <string name="notification_wake_on_action">Wake on</string>
     <string name="rationale_mic_title">Microphone</string>
     <string name="rationale_mic_body">SEVEN listens only while the orb is in Listening, or while the foreground service is holding the microphone for the wake word. Audio is processed on this device; only the transcript is sent to the selected model.</string>
     <string name="rationale_mic_blocked">Microphone access is blocked for SEVEN. Open app settings, choose Permissions → Microphone, and allow it, then tap MIC again.</string>

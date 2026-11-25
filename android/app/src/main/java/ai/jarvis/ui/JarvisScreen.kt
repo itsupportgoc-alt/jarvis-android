@@ -153,6 +153,8 @@ fun JarvisScreen(controller: JarvisController) {
                 Header(
                     phase = ui.phase,
                     accent = accent,
+                    wakeOn = settings.wakeWordEnabled,
+                    onToggleWake = { controller.setWakeWordEnabled(!settings.wakeWordEnabled) },
                     onSettings = { showSettings = true },
                 )
 
@@ -385,6 +387,8 @@ fun JarvisScreen(controller: JarvisController) {
 private fun Header(
     phase: Phase,
     accent: Color,
+    wakeOn: Boolean,
+    onToggleWake: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Row(
@@ -415,7 +419,22 @@ private fun Header(
                     color = accent.copy(alpha = 0.85f),
                     modifier = Modifier.padding(start = 8.dp),
                 )
+                // Say plainly whether the microphone is being held, and by what.
+                Text(
+                    text = if (wakeOn) "· MIC HELD" else "· MIC OFF",
+                    style = MonoSmall,
+                    color = if (wakeOn) JarvisCyan.copy(alpha = 0.7f) else JarvisMuted,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
+        }
+        // One tap from the main screen, not buried in Settings.
+        TextButton(onClick = onToggleWake) {
+            Text(
+                if (wakeOn) "WAKE ON" else "WAKE OFF",
+                style = MonoSmall,
+                color = if (wakeOn) JarvisCyan else JarvisAmber,
+            )
         }
         TextButton(onClick = onSettings) {
             Text("SETTINGS", style = MonoSmall, color = JarvisMuted)
