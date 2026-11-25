@@ -168,6 +168,18 @@ class JarvisController(
     /** True while the user wants the microphone open; drives session restarts. */
     @Volatile
     private var listenRequested = false
+
+    /**
+     * True while a spoken conversation is open: after every reply the
+     * microphone reopens, so the next sentence needs no tap and no wake word.
+     * Only a turn that arrived by voice arms this.
+     */
+    @Volatile
+    private var conversationOpen = false
+
+    /** A spoken turn is in flight; the mic reopens when the engine is idle. */
+    @Volatile
+    private var followUpPending = false
     private var listenRestarts = 0
     private var restartJob: Job? = null
     private var undoAction: UndoAction? = null
@@ -217,6 +229,8 @@ class JarvisController(
                         rePromptForCommand()
                         return
                     }
+                    conversationOpen = true
+                    followUpPending = true
                     listenRequested = false
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
@@ -461,6 +475,7 @@ class JarvisController(
                             partial = if (phase == Phase.LISTENING) it.partial else "",
                         )
                     }
+                    if (phase == Phase.IDLE) reopenForFollowUp()
                     // Engine state is part of the self-model; refresh on transitions only.
                     refreshAwareness()
                 }
@@ -716,7 +731,30 @@ class JarvisController(
         if (!voiceInput.isActive) continueListening()
     }
 
+    /**
+     * Keeps a spoken conversation going. Once the reply has finished playing
+     * the engine reports IDLE, and the microphone reopens there, so the user
+     * can simply keep talking. The wake listener stands down at the same time
+     * because the phase is no longer IDLE.
+     *
+     * A typed message never arms this, and neither does the wake word on its
+     * own, so a request that was not spoken still ends in standby.
+     */
+    private fun reopenForFollowUp() {
+        if (!conversationOpen || !followUpPending) return
+        followUpPending = false
+        if (_ui.value.phase != Phase.IDLE) return
+        if (!Permissions.granted(app, Permissions.MIC)) {
+            conversationOpen = false
+            return
+        }
+        Log.i(TAG, "reply finished; reopening the microphone for a follow-up")
+        startListening()
+    }
+
     fun stopListening() {
+        conversationOpen = false
+        followUpPending = false
         listenRequested = false
         voiceInput.stop()
         capture?.stop()
@@ -727,6 +765,8 @@ class JarvisController(
     }
 
     fun cancel() {
+        conversationOpen = false
+        followUpPending = false
         listenRequested = false
         val current = handle
         if (current != 0L) JarvisNative.nativeCancel(current)
