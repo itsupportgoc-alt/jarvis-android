@@ -1,0 +1,33 @@
+{
+  "name": "seven-desktop",
+  "productName": "SEVEN",
+  "version": "0.1.0",
+  "description": "SEVEN voice assistant for Windows",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --dir",
+    "portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "ai.seven.desktop",
+    "productName": "SEVEN",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "speech/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.18.0"
+  }
+}

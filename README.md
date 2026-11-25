@@ -22,8 +22,26 @@ below).
 ```
 android/   Kotlin + Jetpack Compose app
 core/      Rust engine compiled to libjarvis_core.so
+desktop/   Electron app for Windows (SEVEN for Windows)
 models/    model download scripts and local model storage (not committed)
 ```
+
+## SEVEN for Windows
+
+There is a desktop build in [`desktop/`](desktop/README.md): the same surface,
+wake word, spoken "stop" and streaming replies, as a normal Windows
+application. Recognition and speech use Windows' own engines (SAPI), so audio
+never leaves the PC; only the chat request goes to the endpoint you configure.
+
+```bash
+cd desktop
+npm install
+npm start          # if npm blocks Electron's post-install: node node_modules/electron/install.js
+```
+
+Windows Settings, the voice picker, TEST CONNECTION, MUTE and the transcript
+work as on the phone. The device tools (calls, SMS, apps, torch, screen
+reading) are Android-only — the desktop build talks and listens, and types.
 
 The Android package id is still `ai.jarvis`; only the assistant's name, the wake
 word and every user-facing string changed to Seven.

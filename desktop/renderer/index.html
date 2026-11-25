@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>SEVEN</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="brand">
+          <h1>S.E.V.E.N.</h1>
+          <div class="status">
+            <span id="phaseDot" class="dot"></span>
+            <span id="phase">IDLE</span>
+            <span class="sep">·</span>
+            <span id="micState">MIC OFF</span>
+          </div>
+        </div>
+        <div class="head-actions">
+          <button id="wakeBtn" class="link">WAKE ON</button>
+          <button id="settingsBtn" class="link">SETTINGS</button>
+        </div>
+      </header>
+
+      <canvas id="orb"></canvas>
+
+      <section id="transcript" class="transcript">
+        <div id="lines"></div>
+        <div id="streaming" class="row hidden">
+          <span class="label">SEVEN</span>
+          <span class="text assistant" id="streamText"></span>
+        </div>
+      </section>
+
+      <div class="composer">
+        <input id="input" type="text" placeholder="Type a command" autocomplete="off" autofocus />
+        <button id="sendBtn" class="link">SEND</button>
+      </div>
+
+      <footer>
+        <button id="micBtn" class="action">MIC</button>
+        <button id="muteBtn" class="action">MUTE</button>
+        <button id="stopBtn" class="action">STOP</button>
+        <button id="traceBtn" class="action">TRACE</button>
+      </footer>
+    </div>
+
+    <div id="settings" class="sheet hidden">
+      <div class="sheet-body">
+        <h2>REASONING ENGINE</h2>
+        <label>Base URL<input id="setBaseUrl" type="text" spellcheck="false" /></label>
+        <label>API key<input id="setKey" type="password" spellcheck="false" /></label>
+        <label>Model<input id="setModel" type="text" spellcheck="false" /></label>
+        <label>Fallback model<input id="setFallback" type="text" spellcheck="false" /></label>
+
+        <h2>VOICE</h2>
+        <label>Windows voice<select id="setVoice"></select></label>
+        <label>Speaking rate<input id="setRate" type="number" min="0.5" max="2" step="0.1" /></label>
+        <label class="check"><input id="setWake" type="checkbox" /> Always listen for “Seven”</label>
+
+        <div id="testResult" class="test-result"></div>
+        <div class="sheet-actions">
+          <button id="testBtn" class="link">TEST CONNECTION</button>
+          <button id="saveBtn" class="link">SAVE</button>
+          <button id="closeSettings" class="link">CLOSE</button>
+        </div>
+        <p class="hint">
+          The key is stored in this app's own user-data folder and sent only to the
+          endpoint above. Speech recognition and speech output run on this PC.
+        </p>
+      </div>
+    </div>
+
+    <div id="trace" class="sheet hidden">
+      <div class="sheet-body">
+        <h2>TRACE</h2>
+        <pre id="traceLog"></pre>
+        <div class="sheet-actions">
+          <button id="clearTrace" class="link">CLEAR</button>
+          <button id="closeTrace" class="link">CLOSE</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

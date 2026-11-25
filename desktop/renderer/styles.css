@@ -1,0 +1,353 @@
+:root {
+  --cyan: #5fe6ff;
+  --cyan-dim: #1c6b7c;
+  --gold: #ffc870;
+  --amber: #ffa63d;
+  --red: #ff5d5d;
+  --ink: #04070c;
+  --surface: #0a1119;
+  --line: #16232e;
+  --text: #ddebf4;
+  --muted: #7e93a3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 18px 20px 10px;
+  gap: 8px;
+}
+
+header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 7px;
+  color: var(--text);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: var(--muted);
+}
+
+.status .sep {
+  opacity: 0.5;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+
+.dot.listening {
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+}
+
+.dot.thinking {
+  background: var(--amber);
+  box-shadow: 0 0 10px var(--amber);
+}
+
+.dot.speaking {
+  background: var(--gold);
+  box-shadow: 0 0 10px var(--gold);
+}
+
+.dot.error {
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+}
+
+.head-actions {
+  display: flex;
+  gap: 14px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--text);
+}
+
+button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.link {
+  padding: 4px 0;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+}
+
+.link:hover {
+  color: #9df0ff;
+}
+
+#orb {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.transcript {
+  flex: 0 0 44%;
+  min-height: 130px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(10, 17, 25, 0.85), rgba(4, 7, 12, 0.9));
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.transcript.empty::before {
+  content: "Say “Seven …” or type a command.";
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.row .label {
+  width: 52px;
+  flex: 0 0 52px;
+  padding-top: 3px;
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  color: var(--muted);
+}
+
+.row .text {
+  flex: 1;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.row .text.user {
+  color: var(--cyan);
+}
+
+.row .text.assistant {
+  color: var(--gold);
+}
+
+.row .text.partial {
+  color: rgba(95, 230, 255, 0.55);
+  font-style: italic;
+}
+
+.row .text.error {
+  color: var(--red);
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.composer input {
+  flex: 1;
+  padding: 2px 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.composer input::placeholder {
+  color: var(--muted);
+}
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 4px 0;
+}
+
+.action {
+  padding: 8px 4px;
+  font-size: 10px;
+  letter-spacing: 2.4px;
+  color: var(--muted);
+}
+
+.action:hover {
+  color: var(--text);
+}
+
+.action.active {
+  color: var(--cyan);
+}
+
+.action.danger {
+  color: var(--red);
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(2, 5, 9, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.sheet.hidden,
+.hidden {
+  display: none;
+}
+
+.sheet-body {
+  width: 100%;
+  max-height: 88%;
+  overflow-y: auto;
+  padding: 20px;
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  background: var(--surface);
+}
+
+.sheet-body h2 {
+  margin: 18px 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2.4px;
+  color: var(--muted);
+}
+
+.sheet-body h2:first-child {
+  margin-top: 0;
+}
+
+.sheet-body label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  color: var(--muted);
+}
+
+.sheet-body input[type="text"],
+.sheet-body input[type="password"],
+.sheet-body input[type="number"],
+.sheet-body select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--text);
+  font-family: Consolas, monospace;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sheet-body input:focus,
+.sheet-body select:focus {
+  border-color: var(--cyan-dim);
+}
+
+.sheet-body .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--text);
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 16px 0 4px;
+}
+
+.test-result {
+  min-height: 16px;
+  font-family: Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.test-result.ok {
+  color: var(--cyan);
+}
+
+.test-result.bad {
+  color: var(--red);
+}
+
+.hint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+#traceLog {
+  max-height: 55vh;
+  margin: 0;
+  overflow-y: auto;
+  font-family: Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
