@@ -4,6 +4,7 @@ import ai.jarvis.BuildConfig
 import ai.jarvis.audio.AudioCapture
 import ai.jarvis.audio.VoiceEngine
 import ai.jarvis.audio.VoiceInput
+import ai.jarvis.audio.WakeWord
 import ai.jarvis.awareness.AwarenessRepository
 import ai.jarvis.awareness.BackendKind
 import ai.jarvis.awareness.EngineFacts
@@ -212,6 +213,10 @@ class JarvisController(
                 }
 
                 override fun onFinal(text: String) {
+                    if (WakeWord.isWakeOnly(text)) {
+                        rePromptForCommand()
+                        return
+                    }
                     listenRequested = false
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
@@ -692,6 +697,23 @@ class JarvisController(
                     voiceInput.start()
                 }
             }
+    }
+
+    /**
+     * The name on its own is how a listener starts over after a silence, not a
+     * request. Answering it made JARVIS invent a reply to "Jarvis", so keep the
+     * session open and wait for the actual command instead.
+     *
+     * `VoiceInput` calls `onEnded` immediately after `onFinal`, and that path
+     * reopens the recogniser while `listenRequested` is still true.
+     */
+    private fun rePromptForCommand() {
+        if (BuildConfig.DEBUG) Log.i(TAG, "heard only the wake word; waiting for a command")
+        listenRequested = true
+        listenRestarts = 0
+        haptics.tick()
+        _ui.update { it.copy(phase = Phase.LISTENING, partial = "", error = null) }
+        if (!voiceInput.isActive) continueListening()
     }
 
     fun stopListening() {

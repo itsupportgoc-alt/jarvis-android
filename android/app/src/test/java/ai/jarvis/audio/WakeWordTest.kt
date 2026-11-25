@@ -1,7 +1,9 @@
 package ai.jarvis.audio
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WakeWordTest {
@@ -43,5 +45,22 @@ class WakeWordTest {
     @Test
     fun doesNotMatchLookalikeWords() {
         assertNull(WakeWord.command("jarvisonic speakers"))
+    }
+
+    @Test
+    fun nameAloneIsNotACommand() {
+        // The re-armed session hears only this and used to send it to the model.
+        assertTrue(WakeWord.isWakeOnly("Jarvis"))
+        assertTrue(WakeWord.isWakeOnly("jarvis."))
+        assertTrue(WakeWord.isWakeOnly("Hey Jarvis?"))
+        assertTrue(WakeWord.isWakeOnly(" okay, Jarvis! "))
+    }
+
+    @Test
+    fun anythingWithAnInstructionIsACommand() {
+        assertFalse(WakeWord.isWakeOnly("Jarvis open camera"))
+        assertFalse(WakeWord.isWakeOnly("hey jarvis what's the weather"))
+        assertFalse(WakeWord.isWakeOnly("turn on the lights"))
+        assertFalse(WakeWord.isWakeOnly(""))
     }
 }
