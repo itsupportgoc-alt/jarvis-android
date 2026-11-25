@@ -360,8 +360,12 @@ data class JarvisSettings(
     val voiceInput: VoiceInputMode = VoiceInputMode.SYSTEM,
     val trustedTools: Set<String> = emptySet(),
     val wakeSensitivity: Float = 0.6f,
-    /** Keep the microphone open for the "Seven" wake phrase. */
-    val wakeWordEnabled: Boolean = false,
+    /**
+     * Keep the microphone open for the "Seven" wake phrase. On by default:
+     * the assistant is meant to answer when its name is called with the app
+     * closed, and STOP/MUTE are the explicit ways to take the mic away.
+     */
+    val wakeWordEnabled: Boolean = true,
     /** Which language the recogniser listens for and the voice speaks. */
     val spokenLanguage: String = SpeechLanguage.AUTO,
     val webhookUrl: String = "",
@@ -426,7 +430,7 @@ class SettingsStore(
                 }.getOrDefault(VoiceInputMode.SYSTEM),
             trustedTools = prefs.getStringSet("trusted_tools", emptySet()) ?: emptySet(),
             wakeSensitivity = prefs.getFloat("wake_sensitivity", 0.6f),
-            wakeWordEnabled = prefs.getBoolean("wake_word_enabled", false),
+            wakeWordEnabled = prefs.getBoolean("wake_word_enabled", true),
             spokenLanguage = prefs.getString("spoken_language", SpeechLanguage.AUTO) ?: SpeechLanguage.AUTO,
             webhookUrl = prefs.getString("webhook_url", "") ?: "",
             hasApiKey = prefs.getBoolean("has_api_key", false),

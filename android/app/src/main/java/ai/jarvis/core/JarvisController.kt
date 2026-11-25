@@ -233,6 +233,8 @@ class JarvisController(
                     conversationOpen = true
                     followUpPending = true
                     listenRequested = false
+                    // A real utterance resets the silence backoff.
+                    listenRestarts = 0
                     _ui.update { it.copy(partial = "", phase = Phase.THINKING) }
                     appendLine(Speaker.USER, text)
                     // Recognition runs locally, so the transcript above is real
@@ -690,19 +692,14 @@ class JarvisController(
      */
     private fun continueListening() {
         if (!listenRequested) return
-        if (listenRestarts >= MAX_LISTEN_RESTARTS) {
-            listenRequested = false
-            reportError(
-                "I stopped listening after a while without hearing you. Tap MIC to try again.",
-                phase = Phase.IDLE,
-            )
-            return
-        }
         if (restartJob?.isActive == true) return
         listenRestarts += 1
         _ui.update { it.copy(phase = Phase.LISTENING, micRms = 0f, error = null) }
-        // Back off progressively: the platform needs a moment to release the
-        // microphone, and restarting too eagerly only produces BUSY errors.
+        // The microphone stays open until STOP is tapped: there is no restart
+        // limit any more, only a progressively longer pause between silent
+        // sessions, so a long silence cannot spin the recogniser. The platform
+        // also needs a moment to release the microphone, and restarting too
+        // eagerly only produces BUSY errors.
         val waitMs =
             (LISTEN_RESTART_BASE_MS + listenRestarts * LISTEN_RESTART_STEP_MS)
                 .coerceAtMost(LISTEN_RESTART_MAX_MS)
@@ -1446,8 +1443,7 @@ class JarvisController(
         const val UNDO_WINDOW_MS = 5_000L
         const val LISTEN_RESTART_BASE_MS = 250L
         const val LISTEN_RESTART_STEP_MS = 100L
-        const val LISTEN_RESTART_MAX_MS = 600L
-        const val MAX_LISTEN_RESTARTS = 120
+        const val LISTEN_RESTART_MAX_MS = 2_000L
         const val FREEBUFF_PROVIDER_ID = "freebuff"
         const val RAM_RESERVE_MB = 512L
         const val MAX_MODEL_RAM_MB = 2_048L

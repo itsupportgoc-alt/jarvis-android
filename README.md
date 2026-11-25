@@ -33,9 +33,14 @@ word and every user-facing string changed to Seven.
 * **Renamed to Seven.** App name, notifications, transcript labels, prompts,
   Settings copy, the voice preset and the wake word are all "Seven". The old
   wake word no longer matches.
-* **Conversation stays open.** After a spoken reply finishes, the microphone
-  reopens on its own, so you can simply keep talking. STOP ends it; if you go
-  quiet it stops listening and returns to standby.
+* **The microphone only closes on STOP.** A spoken reply reopens it, and a
+  silent session re-arms instead of giving up, with a backoff that grows to 2 s
+  so it does not spin the recogniser. MIC toggles it and STOP closes it; nothing
+  else turns it off.
+* **The wake word works with the app closed.** Wake-word listening is on by
+  default and runs in a microphone foreground service that survives leaving or
+  swiping away the app (an alarm brings it back), and reboots. STOP on the
+  notification ends it.
 * **The microphone works every session.** Each listening session binds a fresh
   `SpeechRecognizer` (a reused instance went deaf after one session on a Redmi
   10), with 4 s ready and 20 s stall watchdogs that rebind instead of hanging.
@@ -382,8 +387,10 @@ Demo script: [DEMO.md](DEMO.md).
   build is the remedy. Tagalog needs the Google speech service and a Filipino
   TTS voice to be installed for speech output.
 * The wake word runs on the platform recogniser, not openWakeWord; it needs the
-  foreground service to stay alive, which MIUI can kill unless autostart is
-  allowed.
+  foreground service to stay alive. MIUI battery optimisation can still kill
+  it, so allow SEVEN under Autostart and set battery saver to “No restrictions”.
+  Holding the microphone all day also costs battery — that is the trade for
+  always listening.
 * `close_app` returns to the home screen: Android has no API to force-stop
   another app.
 * Verified on one device (Redmi 10, Android 13). Other OEMs' recognition and TTS

@@ -95,6 +95,8 @@
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- Sent by the service itself when the app is swiped away. -->
+                <action android:name="ai.jarvis.RESTART_WAKE" />
             </intent-filter>
         </receiver>
 

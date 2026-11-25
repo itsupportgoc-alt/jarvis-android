@@ -8,6 +8,7 @@ import ai.jarvis.audio.WakeListener
 import ai.jarvis.audio.dispatchWakeTranscript
 import ai.jarvis.core.Phase
 import ai.jarvis.permissions.Permissions
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -82,6 +83,32 @@ class JarvisService : Service() {
             dispatchWakeTranscript(text, ::onWake)
         }
         return START_STICKY
+    }
+
+    /**
+     * Swiping the app away must not take the wake word with it. The service is
+     * started again a moment later through an alarm, which the system allows
+     * from the background where a direct start may be refused.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "task removed; scheduling the wake listener to come back")
+        val restart =
+            Intent(applicationContext, WakeBootReceiver::class.java)
+                .setAction(WakeBootReceiver.ACTION_RESTART)
+        val pending =
+            PendingIntent.getBroadcast(
+                applicationContext,
+                RESTART_REQUEST_CODE,
+                restart,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        val alarm = getSystemService(AlarmManager::class.java)
+        runCatching {
+            // An inexact alarm needs no exact-alarm permission and a second of
+            // slack does not matter for a woken service.
+            alarm?.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + RESTART_DELAY_MS, pending)
+        }.onFailure { Log.w(TAG, "could not schedule the wake restart", it) }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
@@ -236,6 +263,8 @@ class JarvisService : Service() {
     companion object {
         private const val TAG = "JarvisService"
         private const val WAKE_REARM_DELAY_MS = 600L
+        private const val RESTART_DELAY_MS = 1_500L
+        private const val RESTART_REQUEST_CODE = 7
         private const val CHANNEL_ID = "jarvis_listening"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "ai.jarvis.STOP"

@@ -8,24 +8,32 @@ import android.content.Intent
 import android.util.Log
 
 /**
- * Restores the wake-word listener after a reboot, but only when the user turned
- * the wake word on and the microphone is still granted. Android 14+ refuses a
- * microphone-typed foreground service started from boot, so the start is
- * guarded: the user can always re-enable it by opening JARVIS.
+ * Brings the wake-word listener back after a reboot or after the user swiped the
+ * app away.
+ *
+ * The listener has to outlive the activity: the whole point is that saying the
+ * name works with the app closed. Android still refuses a microphone-typed
+ * foreground service started from the background in some versions, so every
+ * path here is guarded and logs the refusal instead of crashing; opening the app
+ * always re-arms it.
  */
 class WakeBootReceiver : BroadcastReceiver() {
     override fun onReceive(
         context: Context,
         intent: Intent,
     ) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val action = intent.action
+        if (action != Intent.ACTION_BOOT_COMPLETED && action != ACTION_RESTART) return
         if (!SettingsStore(context).current.wakeWordEnabled) return
         if (!Permissions.granted(context, Permissions.MIC)) return
         runCatching { JarvisService.start(context) }
-            .onFailure { Log.w(TAG, "wake word not restored after boot", it) }
+            .onFailure { Log.w(TAG, "wake listener not restored after $action", it) }
     }
 
-    private companion object {
-        const val TAG = "JarvisWakeBoot"
+    companion object {
+        private const val TAG = "JarvisWakeBoot"
+
+        /** Sent by [JarvisService.onTaskRemoved] when the app is swiped away. */
+        const val ACTION_RESTART = "ai.jarvis.RESTART_WAKE"
     }
 }
