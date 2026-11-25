@@ -225,8 +225,15 @@ Settings → VOICE → spoken language:
 
 The wake listener uses the same recogniser language, and the model is told to
 answer in whichever language you just used. Tagalog is written by the model, so
-the accuracy of the spoken reply depends on the endpoint you pick; the platform
-recogniser needs the Google speech service (it is the default on most phones).
+the accuracy of the spoken reply depends on the endpoint you pick.
+
+Knowing Filipino is a property of the speech service, not of this app. On a
+Redmi 10 (Android 13) the bundled `AiAiSpeechRecognitionService` rejects both
+`fil-PH` and `tl-PH` with `ERROR_LANGUAGE_NOT_SUPPORTED`, so speaking Tagalog is
+not understood there — the app notices the refusal, records the tag, and keeps
+listening in the phone's language instead of going deaf. Typing Tagalog still
+works, and the Filipino voice still speaks the answer. On phones whose Google
+speech service does carry Filipino, the same setting listens in it directly.
 
 ## Permission matrix
 

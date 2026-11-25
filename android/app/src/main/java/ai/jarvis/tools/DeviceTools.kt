@@ -278,8 +278,8 @@ class CloseAppTool :
         ToolSpec(
             name = "close_app",
             description =
-                "Leave the current app. Android has no API to force-stop " +
-                    "another app, so this returns to the home screen.",
+                "Close the app that is open now by returning to the home screen. " +
+                    "Android has no API to force-stop another app.",
             parameters = schema(),
         ),
     ) {
@@ -287,14 +287,21 @@ class CloseAppTool :
         context: Context,
         args: JSONObject,
     ): ToolResult {
+        // The accessibility service can press HOME directly; without it the
+        // HOME intent does the same thing, so closing an app is never blocked
+        // on a permission the user has not granted.
         val closed =
             ai.jarvis.service.JarvisAccessibilityService.instance
                 ?.goHome() ?: false
-        return if (closed) {
+        if (closed) return ToolResult.ok("Closed.")
+        val home =
+            Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching {
+            context.startActivity(home)
             ToolResult.ok("Closed.")
-        } else {
-            ToolResult.fail("I need the accessibility service enabled to leave an app.")
-        }
+        }.getOrElse { ToolResult.fail("I could not leave the app: ${it.message}") }
     }
 }
 

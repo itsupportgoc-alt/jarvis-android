@@ -32,6 +32,9 @@ class WakeListener(
     private val handler = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
 
+    /** Language the live session was opened with, for the refusal fallback. */
+    private var sessionLanguage = ""
+
     @Volatile
     private var running = false
     private var restartQueued = false
@@ -105,10 +108,11 @@ class WakeListener(
             // Explicitly request offline=false so MIUI picks a network recogniser
             // instead of the broken offline one that returns empty results.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE,
-                SpeechLanguage.recognitionTag(SettingsStore(appContext).current.spokenLanguage),
-            )
+            val language =
+                SpeechLanguage.recognitionTag(SettingsStore(appContext).current.spokenLanguage)
+            sessionLanguage = language
+            if (BuildConfig.DEBUG) Log.d(TAG, "session language=$language")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
             // An always-on listener has to keep each session open long enough to
             // hear the phrase. With EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS
             // at 800 ms the recognition service ended every session about 0.75 s
@@ -194,6 +198,15 @@ class WakeListener(
                 // codes such as 11 from some recogniser backends) is routine; the
                 // listener re-arms and keeps trying.
                 Log.d(TAG, "wake session ended with error $error")
+                if (
+                    error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                    error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                ) {
+                    // Never block the wake word on a language the backend lacks.
+                    Log.w(TAG, "recogniser cannot listen in $sessionLanguage; falling back")
+                    SpeechLanguage.reject(sessionLanguage)
+                    recycle()
+                }
                 // A client error or a session that never even got ready means
                 // this instance is no longer usable; the next session needs a
                 // fresh one.

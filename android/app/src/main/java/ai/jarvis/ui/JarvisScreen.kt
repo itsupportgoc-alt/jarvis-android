@@ -396,9 +396,9 @@ private fun Header(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "J.A.R.V.I.S.",
+                text = "S.E.V.E.N.",
                 fontSize = 13.sp,
-                letterSpacing = 6.sp,
+                letterSpacing = 8.sp,
                 color = JarvisText,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -458,7 +458,8 @@ fun SettingsSheet(
                 }
                 Text(
                     "Tagalog listens with the Filipino recogniser and speaks with the Filipino voice; " +
-                        "SEVEN answers in whichever language you use.",
+                        "SEVEN answers in whichever language you use. If this phone has no Filipino " +
+                        "speech model, listening falls back to the phone language instead of going silent.",
                     style = MonoSmall,
                     modifier = Modifier.padding(top = 6.dp),
                 )

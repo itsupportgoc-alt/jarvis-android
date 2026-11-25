@@ -98,6 +98,9 @@ class VoiceInput(
     /** Last words the recogniser streamed, used when the final result is empty. */
     private var lastPartial = ""
 
+    /** Language this session was opened with, so it can be remembered as refused. */
+    private var sessionLanguage = ""
+
     /** True once this session has produced a transcript or reported an error. */
     private var settled = false
 
@@ -172,12 +175,13 @@ class VoiceInput(
                 // The device language unless Tagalog is selected, not a
                 // hardcoded en-GB: an offline model is only usable for the
                 // locale actually installed.
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE,
+                val language =
                     SpeechLanguage.recognitionTag(
                         SettingsStore(context.applicationContext).current.spokenLanguage,
-                    ),
-                )
+                    )
+                sessionLanguage = language
+                if (BuildConfig.DEBUG) Log.d(TAG, "session language=$language")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
                 // Only the trailing-silence window is set. Forcing
                 // COMPLETE_SILENCE_LENGTH_MILLIS at 900 ms truncated sentences
                 // and ended sessions long before the user finished speaking.
@@ -274,6 +278,16 @@ class VoiceInput(
                 }
                 if (settled) return
                 Log.i(TAG, "recogniser error $error (partial=\"${lastPartial.trim()}\")")
+                if (
+                    error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                    error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                ) {
+                    // This backend cannot listen in the chosen language. Forget
+                    // the tag so the next session uses the phone's language;
+                    // otherwise every session fails and the mic seems dead.
+                    Log.w(TAG, "recogniser cannot listen in $sessionLanguage; falling back")
+                    SpeechLanguage.reject(sessionLanguage)
+                }
                 val heard = lastPartial.trim()
                 // Speech was heard but recognition ended without a usable final
                 // result: answer what was captured rather than re-arming forever.
