@@ -25,11 +25,11 @@ val VOICE_PRESETS =
         VoicePreset(
             id = "jarvis",
             label = "Seven",
-            description = "British male, dry, unhurried. Falls back to the closest en-GB voice installed.",
+            description = "British male, clipped and measured, the JARVIS register. Falls back to the closest en-GB voice installed.",
             locale = "en-GB",
-            pitch = 0.82f,
-            // Normal talking speed: anything below 1.0 reads as drawled.
-            rate = 1.0f,
+            pitch = 0.8f,
+            // A hair under 1.0: measured delivery without sounding drawled.
+            rate = 0.97f,
             engine = VoiceEngineKind.PLATFORM,
         ),
         VoicePreset(

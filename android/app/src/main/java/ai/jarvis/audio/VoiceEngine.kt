@@ -144,7 +144,7 @@ class VoiceEngine(
         // A real male voice is used when installed; otherwise the preset's pitch
         // is lowered further so SEVEN still sounds male.
         val depth = if (maleVoice && !maleApplied) MALE_PITCH_FALLBACK else 1f
-        engine.setPitch((pitch * depth * if (question) QUESTION_PITCH_BIAS else 1f).coerceIn(0.5f, 2f))
+        engine.setPitch((pitch * depth * if (question) QUESTION_PITCH_BIAS else 1f).coerceIn(MIN_PITCH, 2f))
         val id = "u${++counter}"
         texts[id] = text
         outstanding += 1
@@ -213,36 +213,23 @@ class VoiceEngine(
             }
         }
         val voices = engine.voices ?: return
-        val sameLanguage = voices.filter { it.locale.language == locale.language }
-        val male =
-            if (maleVoice) {
-                // Walk the preference list (deepest measured voice first) rather
-                // than the engine's order, and prefer an installed local voice.
-                MALE_VOICES
-                    .mapNotNull { target ->
-                        sameLanguage
-                            .filter { baseName(it.name) == target }
-                            .minByOrNull { it.isNetworkConnectionRequired }
-                    }.firstOrNull()
-            } else {
-                null
+        // Walk the shared, unit-tested picker rather than the engine's order: an
+        // installed British male voice is what makes SEVEN sound like itself.
+        val options =
+            voices.map {
+                VoiceOption(
+                    name = it.name,
+                    localeTag = it.locale.toLanguageTag(),
+                    requiresNetwork = it.isNetworkConnectionRequired,
+                )
             }
-        val fallback =
-            sameLanguage
-                .sortedBy { if (it.locale.country == locale.country) 0 else 1 }
-                .firstOrNull { !it.isNetworkConnectionRequired }
-        val chosen = male ?: fallback
-        maleApplied = male != null
+        val picked = VoiceSelection.pick(options, locale, maleVoice)
+        val chosen = picked?.let { option -> voices.firstOrNull { it.name == option.name } }
+        maleApplied = picked != null && VoiceSelection.isMale(picked)
         chosen?.let { engine.voice = it }
         if (BuildConfig.DEBUG) android.util.Log.i("JarvisVoice", "voice=${chosen?.name} male=$maleApplied")
     }
 
-    private fun baseName(name: String): String =
-        name
-            .substringBefore('#')
-            .removeSuffix("-local")
-            .removeSuffix("-network")
-            .lowercase(Locale.ROOT)
 
     private val progress =
         object : UtteranceProgressListener() {
@@ -366,16 +353,17 @@ class VoiceEngine(
 
     private companion object {
         const val QUESTION_PITCH_BIAS = 1.06f
-        const val MALE_PITCH_FALLBACK = 0.85f
 
-        /** Measured male system voices (median F0 112-150 Hz on a Redmi 10). */
-        val MALE_VOICES =
-            listOf(
-                "en-gb-x-gbd",
-                "en-gb-x-rjs",
-                "en-us-x-iol",
-                "en-gb-x-gbb",
-            )
+        /**
+         * Depth applied when the engine has no male voice at all. It is shallow
+         * on purpose: the preset pitch is already low, and stacking a second
+         * large drop on top of it reads as a slowed-down recording.
+         */
+        const val MALE_PITCH_FALLBACK = 0.92f
+
+        /** Below this, pitch sounds synthetic; JARVIS is low, not slow-motion. */
+        const val MIN_PITCH = 0.7f
+
         const val QUESTION_MARK = "\u0001"
     }
 }
