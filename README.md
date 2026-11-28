@@ -10,8 +10,8 @@ The assistant is called **Seven**; say "Seven" (or "Hey Seven") to wake it.
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11** | **[SEVEN-Windows-0.1.0-portable.exe](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.1/SEVEN-Windows-0.1.0-portable.exe)** (80 MB) | Single portable executable, no installer. Unsigned: SmartScreen shows *Windows protected your PC* → **More info → Run anyway**. Needs a microphone. |
-| **Android 10+** | **[seven-0.4.1-debug.apk](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.1/seven-0.4.1-debug.apk)** (33 MB) | Includes arm64-v8a, armeabi-v7a and x86_64 libraries. Debug-signed: enable "install unknown apps", then open the file. On Android 13+ also allow **restricted settings** in App info before the accessibility switch will stay on. |
+| **Windows 10/11** | **[SEVEN-Windows-0.1.0-portable.exe](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.2/SEVEN-Windows-0.1.0-portable.exe)** (80 MB) | Single portable executable, no installer. Unsigned: SmartScreen shows *Windows protected your PC* → **More info → Run anyway**. Needs a microphone. |
+| **Android 10+** | **[seven-0.4.2-debug.apk](https://github.com/itsupportgoc-alt/jarvis-android/releases/download/v0.4.2/seven-0.4.2-debug.apk)** (33 MB) | Includes arm64-v8a, armeabi-v7a and x86_64 libraries. Debug-signed: enable "install unknown apps", then open the file. On Android 13+ also allow **restricted settings** in App info before the accessibility switch will stay on. |
 
 All releases: <https://github.com/itsupportgoc-alt/jarvis-android/releases>.
 
@@ -85,6 +85,9 @@ word and every user-facing string changed to Seven.
   pitch 0.80 / rate 0.97: clipped and measured, the JARVIS register. A phone with
   no male voice installed falls back shallowly (pitch ×0.92, floored at 0.70) so
   it sounds low rather than slowed down. Unit-tested in `VoiceSelectionTest`.
+  A preset brings its own rate and pitch; an install that never saved the
+  sliders is migrated once to them, because older builds had written their old
+  defaults into prefs and those quietly overrode every retune.
 * **Speech tuned for misheard words.** The recogniser keeps the microphone open
   for the first 1.2 s of speech and 2 s of trailing silence, waits 3.5 s for a
   real final result, and treats "Play Seven" / "Play 7" (what this phone returns

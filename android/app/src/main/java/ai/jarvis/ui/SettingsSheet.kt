@@ -429,7 +429,8 @@ fun SettingsSheet(
                         FilterChip(
                             selected = settings.voicePresetId == preset.id,
                             onClick = {
-                                controller.saveVoice(preset.id, rate, pitch, volume)
+                                // The preset's own rate/pitch, not the sliders' current values.
+                                controller.selectVoicePreset(preset.id)
                             },
                             label = { Text(preset.label, style = MonoSmall) },
                             colors = chipColors(),

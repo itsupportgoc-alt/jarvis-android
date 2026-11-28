@@ -351,9 +351,16 @@ data class JarvisSettings(
     val fallbackModel: String = DEFAULT_FALLBACK_MODEL,
     val voicePresetId: String = "jarvis",
     /** 1.0 is the engine's normal talking speed. */
-    val rate: Float = 1.0f,
-    val pitch: Float = 0.85f,
+    val rate: Float = 0.97f,
+    val pitch: Float = 0.8f,
     val volume: Float = 0.9f,
+    /**
+     * True once the sliders were saved by hand. Until then the preset's own
+     * rate/pitch are stored, so retuning a preset actually reaches the user who
+     * never touched the sliders — older builds wrote the old defaults into
+     * prefs, which is what kept the new voice from being audible.
+     */
+    val voiceTuned: Boolean = false,
     /** Prefer a male system voice; SEVEN is written as male. */
     val maleVoice: Boolean = true,
     val animationMode: AnimationMode = AnimationMode.ORB,
@@ -407,6 +414,7 @@ class SettingsStore(
 
     private fun read(): JarvisSettings {
         normaliseRateOnce()
+        applyPresetVoiceOnce()
         return JarvisSettings(
             baseUrl =
                 prefs.getString("base_url", JarvisSettings.DEFAULT_BASE_URL)
@@ -419,6 +427,7 @@ class SettingsStore(
             rate = prefs.getFloat("rate", JarvisSettings.NORMAL_RATE),
             pitch = prefs.getFloat("pitch", 0.85f),
             volume = prefs.getFloat("volume", 0.9f),
+            voiceTuned = prefs.getBoolean("voice_tuned", false),
             maleVoice = prefs.getBoolean("male_voice", true),
             animationMode =
                 runCatching {
@@ -462,6 +471,22 @@ class SettingsStore(
             .apply()
     }
 
+    /**
+     * Moves an install that never touched the voice sliders onto its preset's
+     * tuning. Rate/pitch written by an older build are defaults, not choices,
+     * so keeping them would silently override every retuned preset.
+     */
+    private fun applyPresetVoiceOnce() {
+        if (prefs.contains("voice_tuned")) return
+        val preset = presetFor(prefs.getString("voice_preset", "jarvis") ?: "jarvis")
+        prefs
+            .edit()
+            .putFloat("rate", preset.rate)
+            .putFloat("pitch", preset.pitch)
+            .putBoolean("voice_tuned", false)
+            .apply()
+    }
+
     private fun update(transform: (JarvisSettings) -> JarvisSettings) {
         val next = transform(_settings.value)
         prefs
@@ -473,6 +498,7 @@ class SettingsStore(
             .putFloat("rate", next.rate)
             .putFloat("pitch", next.pitch)
             .putFloat("volume", next.volume)
+            .putBoolean("voice_tuned", next.voiceTuned)
             .putBoolean("male_voice", next.maleVoice)
             .putString("animation_mode", next.animationMode.name)
             .putString("voice_input", next.voiceInput.name)
@@ -508,7 +534,20 @@ class SettingsStore(
         rate: Float,
         pitch: Float,
         volume: Float,
-    ) = update { it.copy(voicePresetId = presetId, rate = rate, pitch = pitch, volume = volume) }
+    ) = update { it.copy(voicePresetId = presetId, rate = rate, pitch = pitch, volume = volume, voiceTuned = true) }
+
+    /** A preset brings its own tuning; the sliders start from it, not from old values. */
+    fun selectVoicePreset(presetId: String) {
+        val preset = presetFor(presetId)
+        update {
+            it.copy(
+                voicePresetId = preset.id,
+                rate = preset.rate,
+                pitch = preset.pitch,
+                voiceTuned = false,
+            )
+        }
+    }
 
     fun setMaleVoice(enabled: Boolean) = update { it.copy(maleVoice = enabled) }
 

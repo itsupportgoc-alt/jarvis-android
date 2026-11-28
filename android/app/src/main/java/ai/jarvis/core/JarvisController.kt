@@ -1097,6 +1097,12 @@ class JarvisController(
         applyVoiceSettings(settingsStore.current)
     }
 
+    /** Switching preset applies that preset's own tuning immediately. */
+    fun selectVoicePreset(presetId: String) {
+        settingsStore.selectVoicePreset(presetId)
+        applyVoiceSettings(settingsStore.current)
+    }
+
     fun speakTestLine() {
         val preset = presetFor(settingsStore.current.voicePresetId)
         applyVoiceSettings(settingsStore.current)
